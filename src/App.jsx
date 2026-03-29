@@ -4,7 +4,7 @@ import './App.css'
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
 
-async function fetchCandidates(slug) {
+async function fetchCandidates(slug, partyLabel) {
   const res = await fetch(`/api/polymarket/events?slug=${slug}`)
   if (!res.ok) throw new Error(`Polymarket API returned ${res.status}`)
   const events = await res.json()
@@ -29,7 +29,13 @@ async function fetchCandidates(slug) {
         return null
       }
 
-      if (!market.question?.includes('2028')) return null
+      const question = market.question?.trim() || ''
+      const nominationPattern = new RegExp(
+        `^Will\\s+(.+?)\\s+win\\s+the\\s+2028\\s+${partyLabel}\\s+presidential\\s+nomination\\??$`,
+        'i'
+      )
+      const nameMatch = question.match(nominationPattern)
+      if (!nameMatch) return null
 
       // Binary market: find "Yes" outcome probability
       const yesIdx = outcomes.findIndex(o => o?.toLowerCase() === 'yes')
@@ -40,9 +46,7 @@ async function fetchCandidates(slug) {
       if (isNaN(prob) || prob < 0.005) return null
       if (prob > 1) return null
 
-      // Extract candidate name from question "Will X win the 2028..."
-      const nameMatch = market.question?.match(/^Will\s+(.+?)\s+win\b/i)
-      const name = nameMatch ? nameMatch[1].trim() : market.question?.trim() || 'Unknown'
+      const name = nameMatch[1].trim()
 
       return { id: market.id, name, prob }
     })
@@ -94,10 +98,14 @@ function Initials({ name, party }) {
   )
 }
 
-function CandidatePanel({ candidate, photo, party, animKey }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote }) {
   const isDem = party === 'dem'
   return (
-    <div className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'}`}>
+    <button
+      className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'}`}
+      onClick={onVote}
+      type="button"
+    >
       <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
       <div className="photo-wrapper" key={animKey}>
         {photo
@@ -111,8 +119,9 @@ function CandidatePanel({ candidate, photo, party, animKey }) {
           <span className="prob-pct">{(candidate.prob * 100).toFixed(1)}%</span>
           <span className="prob-label">nomination odds</span>
         </div>
+        <div className="vote-hint">Click to vote</div>
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -192,8 +201,8 @@ export default function App() {
     ;(async () => {
       try {
         const [dems, reps] = await Promise.all([
-          fetchCandidates(DEM_SLUG),
-          fetchCandidates(REP_SLUG),
+          fetchCandidates(DEM_SLUG, 'Democratic'),
+          fetchCandidates(REP_SLUG, 'Republican'),
         ])
         setMatchups(buildMatchups(dems, reps))
 
@@ -229,12 +238,22 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e) => {
-      if (e.key === 'ArrowLeft') prev()
-      if (e.key === 'ArrowRight') next()
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        vote('dem')
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        vote('rep')
+      }
+      if (e.key === ' ') {
+        e.preventDefault()
+        next()
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [prev, next])
+  }, [vote, next])
 
   const current = matchups[idx]
 
@@ -266,10 +285,18 @@ export default function App() {
           photo={photos[current.dem.name]}
           party="dem"
           animKey={`dem-${idx}`}
+          onVote={() => vote('dem')}
         />
 
         <div className="vs-column">
           <div className="vs-text">VS</div>
+
+          <div className="controls-card">
+            <div className="controls-title">Controls</div>
+            <div className="controls-row"><kbd>←</kbd> vote {current.dem.name.split(' ')[0]}</div>
+            <div className="controls-row"><kbd>→</kbd> vote {current.rep.name.split(' ')[0]}</div>
+            <div className="controls-row"><kbd>Space</kbd> next matchup</div>
+          </div>
 
           <div className="combined-prob">
             <span className="cp-pct">{(current.prob * 100).toFixed(2)}%</span>
@@ -330,6 +357,7 @@ export default function App() {
           photo={photos[current.rep.name]}
           party="rep"
           animKey={`rep-${idx}`}
+          onVote={() => vote('rep')}
         />
       </main>
 
