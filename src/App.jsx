@@ -5,7 +5,7 @@ const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
 
 async function fetchCandidates(slug) {
-  const res = await fetch(`https://gamma-api.polymarket.com/events?slug=${slug}`)
+  const res = await fetch(`/api/polymarket/events?slug=${slug}`)
   if (!res.ok) throw new Error(`Polymarket API returned ${res.status}`)
   const events = await res.json()
 
