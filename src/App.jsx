@@ -9,7 +9,8 @@ async function fetchCandidates(slug) {
   if (!res.ok) throw new Error(`Polymarket API returned ${res.status}`)
   const events = await res.json()
 
-  const event = Array.isArray(events) ? events[0] : events
+  const eventList = Array.isArray(events) ? events : [events]
+  const event = eventList.find(e => e?.slug === slug) || eventList[0]
   if (!event) throw new Error(`No event found for slug: ${slug}`)
 
   const markets = event.markets || []
@@ -28,12 +29,16 @@ async function fetchCandidates(slug) {
         return null
       }
 
+      if (!market.question?.includes('2028')) return null
+
       // Binary market: find "Yes" outcome probability
       const yesIdx = outcomes.findIndex(o => o?.toLowerCase() === 'yes')
       if (yesIdx === -1) return null
 
-      const prob = parseFloat(prices[yesIdx])
+      let prob = parseFloat(prices[yesIdx])
+      if (prob > 1) prob /= 100
       if (isNaN(prob) || prob < 0.005) return null
+      if (prob > 1) return null
 
       // Extract candidate name from question "Will X win the 2028..."
       const nameMatch = market.question?.match(/^Will\s+(.+?)\s+win\b/i)
@@ -140,6 +145,48 @@ export default function App() {
   const [photos, setPhotos] = useState({})
   const [idx, setIdx] = useState(0)
   const [showList, setShowList] = useState(false)
+  const [pollData, setPollData] = useState(null)
+  const [pollLoading, setPollLoading] = useState(false)
+  const [pollError, setPollError] = useState(null)
+
+  const fetchPoll = useCallback(async (matchup) => {
+    const key = `${matchup.dem.id}-${matchup.rep.id}`
+    setPollLoading(true)
+    setPollError(null)
+    try {
+      const res = await fetch(`/api/poll/${encodeURIComponent(key)}`)
+      if (!res.ok) throw new Error(`Poll API returned ${res.status}`)
+      const data = await res.json()
+      setPollData(data)
+    } catch (err) {
+      setPollError(err.message)
+    } finally {
+      setPollLoading(false)
+    }
+  }, [])
+
+  const vote = useCallback(async (side) => {
+    const currentMatchup = matchups[idx]
+    if (!currentMatchup) return
+    const key = `${currentMatchup.dem.id}-${currentMatchup.rep.id}`
+
+    setPollLoading(true)
+    setPollError(null)
+    try {
+      const res = await fetch('/api/poll/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, side }),
+      })
+      if (!res.ok) throw new Error(`Poll vote failed (${res.status})`)
+      const data = await res.json()
+      setPollData(data)
+    } catch (err) {
+      setPollError(err.message)
+    } finally {
+      setPollLoading(false)
+    }
+  }, [idx, matchups])
 
   useEffect(() => {
     ;(async () => {
@@ -189,12 +236,20 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [prev, next])
 
+  const current = matchups[idx]
+
+  useEffect(() => {
+    if (!current) return
+    fetchPoll(current)
+  }, [current, fetchPoll])
+
   if (loading) return <LoadingScreen />
   if (error) return <ErrorScreen message={error} />
   if (!matchups.length) return <ErrorScreen message="No matchups found in market data." />
 
-  const current = matchups[idx]
   const total = matchups.length
+  const demVotePct = pollData?.totalVotes ? (pollData.demVotes / pollData.totalVotes) * 100 : 0
+  const repVotePct = pollData?.totalVotes ? (pollData.repVotes / pollData.totalVotes) * 100 : 0
 
   return (
     <div className="app">
@@ -242,6 +297,32 @@ export default function App() {
           <button className="list-toggle" onClick={() => setShowList(s => !s)}>
             {showList ? 'Hide list' : 'All matchups'}
           </button>
+
+          <div className="poll-card">
+            <div className="poll-title">Who wins this matchup?</div>
+            <div className="poll-actions">
+              <button className="poll-btn poll-dem" onClick={() => vote('dem')} disabled={pollLoading}>
+                Vote {current.dem.name.split(' ')[0]}
+              </button>
+              <button className="poll-btn poll-rep" onClick={() => vote('rep')} disabled={pollLoading}>
+                Vote {current.rep.name.split(' ')[0]}
+              </button>
+            </div>
+            <div className="poll-results">
+              <div className="poll-row">
+                <span>{current.dem.name}</span>
+                <span>{demVotePct.toFixed(0)}%</span>
+              </div>
+              <div className="poll-row">
+                <span>{current.rep.name}</span>
+                <span>{repVotePct.toFixed(0)}%</span>
+              </div>
+              <div className="poll-meta">
+                {pollLoading ? 'Updating poll…' : `${pollData?.totalVotes || 0} total votes`}
+              </div>
+              {pollError && <div className="poll-error">{pollError}</div>}
+            </div>
+          </div>
         </div>
 
         <CandidatePanel
