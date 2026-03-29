@@ -55,6 +55,15 @@
   position: relative;
   overflow: hidden;
   gap: 1.5rem;
+  border: 0;
+  text-align: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.candidate-panel:focus-visible {
+  outline: 3px solid rgba(255, 255, 255, 0.85);
+  outline-offset: -6px;
 }
 
 .panel-dem {
@@ -181,6 +190,13 @@
   color: #fff;
 }
 
+.vote-hint {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: rgba(255, 255, 255, 0.78);
+}
+
 /* ===== VS Column ===== */
 
 .vs-column {
@@ -203,6 +219,42 @@
   letter-spacing: 0.12em;
   color: #fff;
   line-height: 1;
+}
+
+.controls-card {
+  width: 100%;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 0.5rem;
+  background: #121212;
+}
+
+.controls-title {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  color: #9a9a9a;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.35rem;
+}
+
+.controls-row {
+  font-size: 0.65rem;
+  color: #d3d3d3;
+  margin: 0.2rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.controls-row kbd {
+  border: 1px solid #3b3b3b;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+  background: #1b1b1b;
+  color: #f0f0f0;
+  font-size: 0.62rem;
+  font-family: inherit;
 }
 
 .combined-prob {
