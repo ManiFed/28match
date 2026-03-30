@@ -846,7 +846,7 @@ export default function App() {
             {showInsights ? 'Hide insights' : 'Insights'}
           </button>
           <div className="header-vote-stats" aria-label="Your vote distribution">
-            <span className="header-sub">{total} matchups ranked by probability</span>
+            <span className="header-sub">Your stats</span>
             <div className="vote-split-row">
               <span className="vote-split-label">Dem vs Rep</span>
               <div className="vote-split-bar" role="img" aria-label={`${demSessionPct.toFixed(0)} percent Democrat and ${repSessionPct.toFixed(0)} percent Republican votes`}>
