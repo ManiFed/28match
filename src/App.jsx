@@ -306,7 +306,9 @@ export default function App() {
     })()
   }, [])
 
-  const prev = useCallback(() => setIdx(i => Math.max(0, i - 1)), [])
+  const prev = useCallback(() => {
+    setIdx(i => (i === 0 ? Math.max(0, matchups.length - 1) : i - 1))
+  }, [matchups.length])
   const next = useCallback(() => setIdx(i => Math.min(matchups.length - 1, i + 1)), [matchups.length])
 
   useEffect(() => {
@@ -429,7 +431,7 @@ export default function App() {
           </div>
 
           <div className="nav-row">
-            <button className="nav-btn" onClick={prev} disabled={idx === 0} aria-label="Previous">
+            <button className="nav-btn" onClick={prev} disabled={total <= 1} aria-label="Previous">
               &#8249;
             </button>
             <span className="nav-count">{idx + 1} / {total}</span>
