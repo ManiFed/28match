@@ -168,6 +168,14 @@
   padding: 12px 16px;
 }
 
+.startup-notice {
+  padding: 10px 16px;
+  background: #2f2407;
+  border-bottom: 1px solid #5f4c15;
+  color: #f2d98a;
+  font-size: 0.78rem;
+}
+
 .insights-title-row {
   display: flex;
   align-items: center;

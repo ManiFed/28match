@@ -10,6 +10,16 @@ const SWIPE_THRESHOLD_PX = 52
 const BADGE_MILESTONES = [5, 15, 30]
 const REQUEST_TIMEOUT_MS = 12000
 const APP_BOOT_TIMEOUT_MS = 15000
+const FALLBACK_DEMS = [
+  { id: 'fallback-dem-1', name: 'Gavin Newsom', prob: 0.23 },
+  { id: 'fallback-dem-2', name: 'Gretchen Whitmer', prob: 0.19 },
+  { id: 'fallback-dem-3', name: 'Alexandria Ocasio-Cortez', prob: 0.12 },
+]
+const FALLBACK_REPS = [
+  { id: 'fallback-rep-1', name: 'Donald Trump', prob: 0.41 },
+  { id: 'fallback-rep-2', name: 'Ron DeSantis', prob: 0.22 },
+  { id: 'fallback-rep-3', name: 'Nikki Haley', prob: 0.13 },
+]
 
 async function fetchJsonWithTimeout(url, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController()
@@ -399,6 +409,7 @@ export default function App() {
   const [modeShiftFx, setModeShiftFx] = useState(false)
   const [showLegendPopup, setShowLegendPopup] = useState(false)
   const [bootTimedOut, setBootTimedOut] = useState(false)
+  const [startupNotice, setStartupNotice] = useState('')
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
   const lastVotedSideRef = useRef(null)
@@ -641,13 +652,20 @@ export default function App() {
   useEffect(() => {
     ;(async () => {
       try {
-        const [dems, reps] = await Promise.all([
+        const [demsResponse, repsResponse] = await Promise.all([
           fetchCandidates(DEM_SLUG, 'Democratic'),
           fetchCandidates(REP_SLUG, 'Republican'),
         ])
+        const dems = demsResponse.length ? demsResponse : FALLBACK_DEMS
+        const reps = repsResponse.length ? repsResponse : FALLBACK_REPS
         setDemCandidates(dems)
         setRepCandidates(reps)
         setMatchups(buildMatchups(dems, reps, randomness))
+        if (!demsResponse.length || !repsResponse.length) {
+          setStartupNotice('Live market data is temporarily unavailable, so you are viewing fallback candidates.')
+        } else {
+          setStartupNotice('')
+        }
 
         // Prefetch photos for candidates most likely to appear first.
         const topNames = [
@@ -663,7 +681,11 @@ export default function App() {
             }))
           })
       } catch (err) {
-        setError(err.message)
+        setDemCandidates(FALLBACK_DEMS)
+        setRepCandidates(FALLBACK_REPS)
+        setMatchups(buildMatchups(FALLBACK_DEMS, FALLBACK_REPS, randomness))
+        setStartupNotice('Could not reach live market data. Showing fallback candidates so the page still works.')
+        setError(null)
       } finally {
         setLoading(false)
         setBootTimedOut(false)
@@ -971,6 +993,11 @@ export default function App() {
           </div>
         </div>
       </header>
+      {startupNotice && (
+        <div className="startup-notice" role="status" aria-live="polite">
+          {startupNotice}
+        </div>
+      )}
 
       {showInsights && (
         <section className="insights-drawer">
