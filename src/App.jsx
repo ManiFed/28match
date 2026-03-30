@@ -448,7 +448,19 @@ function findNextUnvotedIndex(matchups, votedKeys, startIndex = 0, direction = 1
   return -1
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick, predictionChance = 0 }) {
+function CandidatePanel({
+  candidate,
+  photo,
+  party,
+  animKey,
+  onVote,
+  canVote,
+  flashTick,
+  predictionChance = 0,
+  isMobile = false,
+  pollSharePct = null,
+  totalVotes = 0,
+}) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   const clickTimerRef = useRef(null)
@@ -599,6 +611,12 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
             <span className="prob-pct">{(candidate.prob * 100).toFixed(1)}%</span>
             <span className="prob-label">nomination odds</span>
           </div>
+          {isMobile && typeof pollSharePct === 'number' && (
+            <div className="candidate-poll-chip" role="status" aria-live="polite">
+              <span className="candidate-poll-label">local poll</span>
+              <span className="candidate-poll-value">{pollSharePct.toFixed(0)}% • {totalVotes} votes</span>
+            </div>
+          )}
           <div className="vote-hint">Tap/click to vote • Double-click or hold for strong vote</div>
         </div>
       </button>
@@ -1685,6 +1703,9 @@ export default function App() {
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
           predictionChance={showPredictionForCurrent ? predictionFx.demChance : 0}
           flashStrength={voteFx.side === 'dem' ? voteFx.strength : 'normal'}
+          isMobile={isMobile}
+          pollSharePct={demVotePct}
+          totalVotes={pollData?.totalVotes || 0}
         />
 
         <div className="vs-column" role="region" aria-label="Matchup status">
@@ -1759,6 +1780,9 @@ export default function App() {
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
           predictionChance={showPredictionForCurrent ? predictionFx.repChance : 0}
           flashStrength={voteFx.side === 'rep' ? voteFx.strength : 'normal'}
+          isMobile={isMobile}
+          pollSharePct={repVotePct}
+          totalVotes={pollData?.totalVotes || 0}
         />
       </main>
     </div>
