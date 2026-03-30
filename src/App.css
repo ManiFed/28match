@@ -558,11 +558,12 @@
 }
 
 .prediction-photo-ring {
-  animation: predictionRingPulse 1.05s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+  animation: predictionRingPulse calc(1.5s - (var(--prediction-strength, 0) * 0.75s)) cubic-bezier(0.25, 1, 0.5, 1) infinite;
+  opacity: calc(0.25 + (var(--prediction-strength, 0) * 0.75));
 }
 
 .prediction-photo-pulse {
-  animation: predictionPhotoPulse 1.05s ease-in-out infinite;
+  animation: predictionPhotoPulse calc(1.5s - (var(--prediction-strength, 0) * 0.75s)) ease-in-out infinite;
 }
 
 .prediction-waves {
@@ -581,7 +582,8 @@
   border-radius: 50%;
   border: 3px solid rgba(245, 216, 106, 0.5);
   box-shadow: 0 0 25px rgba(245, 216, 106, 0.28), inset 0 0 18px rgba(245, 216, 106, 0.18);
-  animation: gravityWavePulse 1.5s ease-out infinite;
+  animation: gravityWavePulse calc(1.9s - (var(--prediction-strength, 0) * 0.9s)) ease-out infinite;
+  opacity: calc(0.3 + (var(--prediction-strength, 0) * 0.7));
 }
 
 .prediction-waves span:nth-child(2) {
@@ -889,6 +891,44 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 700;
+}
+
+.prediction-prob-bar {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: auto;
+}
+
+.prediction-prob-track {
+  width: 100%;
+  height: 10px;
+  background: #101010;
+  border-radius: 999px;
+  border: 1px solid #313131;
+  overflow: hidden;
+  display: flex;
+}
+
+.prediction-prob-segment {
+  height: 100%;
+  transition: width 500ms ease;
+}
+
+.prediction-prob-dem {
+  background: linear-gradient(90deg, #2d73ff, #79a7ff);
+}
+
+.prediction-prob-rep {
+  background: linear-gradient(90deg, #f24343, #ff8c8c);
+}
+
+.prediction-prob-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.63rem;
+  color: #c9c9c9;
 }
 
 .controls-title {
