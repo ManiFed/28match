@@ -242,10 +242,82 @@ app.post('/api/poll/vote', async (req, res) => {
   }
 })
 
-app.post('/api/insights', async (_req, res) => {
-  res.status(501).json({
-    error: 'Insights are unavailable because vote history snapshots are not stored.',
-  })
+app.post('/api/insights', async (req, res) => {
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    return res.status(500).json({
+      error: 'OPENROUTER_API_KEY is missing on the server.',
+    })
+  }
+
+  const { votes } = req.body || {}
+  if (!Array.isArray(votes) || votes.length === 0) {
+    return res.status(400).json({
+      error: 'Provide a non-empty votes array to generate insights.',
+    })
+  }
+
+  const trimmedVotes = votes.slice(-200).map((vote) => ({
+    side: vote?.side,
+    demName: vote?.demName,
+    repName: vote?.repName,
+    demProb: Number(vote?.demProb) || 0,
+    repProb: Number(vote?.repProb) || 0,
+    createdAt: vote?.createdAt,
+  }))
+
+  const model = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
+  const systemPrompt = [
+    'You analyze informal political matchup voting behavior.',
+    'Be concise and specific. Keep output under 120 words.',
+    'Use neutral language, avoid moral judgment, and avoid claims about protected traits.',
+    'Output plain text only.',
+  ].join(' ')
+
+  const userPrompt = [
+    `These are a single user session's matchup votes (JSON): ${JSON.stringify(trimmedVotes)}`,
+    'Write one short paragraph with:',
+    '1) party lean,',
+    '2) top-picked candidates,',
+    '3) whether they pick underdogs vs favorites,',
+    '4) one caveat about small sample size.',
+  ].join('\n')
+
+  try {
+    const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.4,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+    })
+
+    const aiData = await aiRes.json().catch(() => ({}))
+    if (!aiRes.ok) {
+      return res.status(502).json({
+        error: aiData?.error?.message || `OpenRouter request failed (${aiRes.status}).`,
+      })
+    }
+
+    const summary = aiData?.choices?.[0]?.message?.content?.trim()
+    if (!summary) {
+      return res.status(502).json({
+        error: 'OpenRouter returned an empty response.',
+      })
+    }
+
+    res.json({ summary, model })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to generate insights.' })
+  }
 })
 
 app.use(
