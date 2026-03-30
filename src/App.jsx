@@ -211,36 +211,6 @@ function getWikiUrl(name) {
   return `https://en.wikipedia.org/wiki/${encodeURIComponent(name.replace(/\s+/g, '_'))}`
 }
 
-function generateSessionInsights(votes) {
-  if (!votes.length) return ''
-
-  const totalVotes = votes.length
-  const demVotes = votes.filter(vote => vote.side === 'dem').length
-  const repVotes = totalVotes - demVotes
-
-  const partyLean = demVotes === repVotes
-    ? 'an even split between Democrats and Republicans'
-    : demVotes > repVotes
-      ? `a Democratic lean (${Math.round((demVotes / totalVotes) * 100)}% of your votes)`
-      : `a Republican lean (${Math.round((repVotes / totalVotes) * 100)}% of your votes)`
-
-  const candidateCounts = votes.reduce((acc, vote) => {
-    const pickedName = vote.side === 'dem' ? vote.demName : vote.repName
-    acc[pickedName] = (acc[pickedName] || 0) + 1
-    return acc
-  }, {})
-  const topCandidate = Object.entries(candidateCounts).sort((a, b) => b[1] - a[1])[0]
-
-  const underdogVotes = votes.filter(vote => {
-    const demProb = Number(vote.demProb) || 0
-    const repProb = Number(vote.repProb) || 0
-    return (vote.side === 'dem' && demProb < repProb) || (vote.side === 'rep' && repProb < demProb)
-  }).length
-  const upsetRate = Math.round((underdogVotes / totalVotes) * 100)
-
-  return `Based on ${totalVotes} votes in this browser session, you show ${partyLean}. Your most selected candidate so far is ${topCandidate[0]} (${topCandidate[1]} picks). You chose the lower-probability side in ${upsetRate}% of matchups, suggesting ${upsetRate >= 45 ? 'a contrarian streak' : 'a tendency to align with market favorites'}.`
-}
-
 function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
@@ -447,10 +417,22 @@ export default function App() {
   }, [])
 
   const fetchInsights = useCallback(async () => {
+    if (!sessionVotes.length) {
+      setInsightsSummary('')
+      setInsightsError(null)
+      return
+    }
     setInsightsLoading(true)
     setInsightsError(null)
     try {
-      setInsightsSummary(generateSessionInsights(sessionVotes))
+      const res = await fetch('/api/insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ votes: sessionVotes }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Insights API returned ${res.status}`)
+      setInsightsSummary(data.summary || '')
     } catch (err) {
       setInsightsError(err.message)
       setInsightsSummary('')
