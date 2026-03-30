@@ -387,7 +387,6 @@ export default function App() {
   const [insightsData, setInsightsData] = useState({
     bias_signals: [],
     surprising_votes: [],
-    suggested_matchups: [],
     confidence_notes: [],
     summary: '',
   })
@@ -616,7 +615,6 @@ export default function App() {
       setInsightsData({
         bias_signals: [],
         surprising_votes: [],
-        suggested_matchups: [],
         confidence_notes: [],
         summary: '',
       })
@@ -640,7 +638,6 @@ export default function App() {
       setInsightsData({
         bias_signals: data?.structured?.bias_signals || [],
         surprising_votes: data?.structured?.surprising_votes || [],
-        suggested_matchups: data?.structured?.suggested_matchups || [],
         confidence_notes: data?.structured?.confidence_notes || [],
         summary: data?.summary || '',
       })
@@ -650,7 +647,6 @@ export default function App() {
       setInsightsData({
         bias_signals: [],
         surprising_votes: [],
-        suggested_matchups: [],
         confidence_notes: [],
         summary: '',
       })
@@ -1019,7 +1015,16 @@ export default function App() {
               Challenge my bias
             </button>
           </div>
-          {insightsLoading && <div className="insights-status">Generating your political summary…</div>}
+          {insightsLoading && (
+            <div className="insights-status insights-loading" role="status" aria-live="polite">
+              <span className="insights-loading-text">Generating your political summary</span>
+              <span className="insights-loading-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
+            </div>
+          )}
           {!insightsLoading && insightsError && (
             <div className="insights-status insights-error">{insightsError}</div>
           )}
@@ -1037,7 +1042,7 @@ export default function App() {
                 )}
               </div>
               <div className="insight-block">
-                <h3>You often prefer X underdog profile</h3>
+                <h3>Your voter profile</h3>
                 <ul className="insights-list">
                   {(insightsData.surprising_votes.length ? insightsData.surprising_votes : ['No strong pattern yet.']).map(item => (
                     <li key={item}>{item}</li>
@@ -1058,11 +1063,6 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                {insightsData.suggested_matchups.length > 0 && (
-                  <ul className="insights-list ai-suggestions">
-                    {insightsData.suggested_matchups.slice(0, 3).map(item => <li key={item}>{item}</li>)}
-                  </ul>
-                )}
                 {insightsData.confidence_notes.length > 0 && (
                   <p className="insights-footnote">{insightsData.confidence_notes.join(' ')}</p>
                 )}
