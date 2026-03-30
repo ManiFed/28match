@@ -39,6 +39,7 @@
   display: flex;
   align-items: center;
   gap: 0.8rem;
+  position: relative;
 }
 
 .header-btn {
@@ -54,6 +55,51 @@
 .header-btn:hover {
   border-color: #666;
   color: #fff;
+}
+
+.settings-wrap {
+  position: relative;
+}
+
+.settings-btn {
+  width: 30px;
+  padding: 5px 0;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.settings-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 230px;
+  padding: 10px;
+  border: 1px solid #303030;
+  border-radius: 8px;
+  background: #101010;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  z-index: 30;
+}
+
+.settings-title {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9f9f9f;
+  margin-bottom: 0.55rem;
+}
+
+.settings-slider {
+  width: 100%;
+  accent-color: #7f8cff;
+}
+
+.settings-scale {
+  margin-top: 0.35rem;
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.66rem;
+  color: #7c7c7c;
 }
 
 /* ===== Leaderboard ===== */

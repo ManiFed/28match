@@ -139,14 +139,18 @@ function weightedShuffle(matchups) {
     .map(({ matchup }) => matchup)
 }
 
-function buildMatchups(dems, reps) {
+function buildMatchups(dems, reps, randomness = 0) {
+  const clampedRandomness = Math.min(1, Math.max(0, randomness))
   const list = []
   for (const dem of dems) {
     for (const rep of reps) {
-      list.push({ dem, rep, prob: dem.prob * rep.prob })
+      const baseProb = dem.prob * rep.prob
+      const adjustedProb = Math.pow(baseProb, 1 - clampedRandomness)
+      list.push({ dem, rep, prob: baseProb, sortProb: adjustedProb })
     }
   }
-  return weightedShuffle(list)
+  return weightedShuffle(list.map(matchup => ({ ...matchup, prob: matchup.sortProb })))
+    .map(({ dem, rep, prob }) => ({ dem, rep, prob }))
 }
 
 function fallbackAvatarUrl(name) {
@@ -259,6 +263,10 @@ export default function App() {
   const [insightsError, setInsightsError] = useState(null)
   const [insightsSummary, setInsightsSummary] = useState('')
   const [voteFx, setVoteFx] = useState({ side: null, tick: 0 })
+  const [demCandidates, setDemCandidates] = useState([])
+  const [repCandidates, setRepCandidates] = useState([])
+  const [randomness, setRandomness] = useState(0.2)
+  const [showSettings, setShowSettings] = useState(false)
   const [voterId] = useState(() => getOrCreateVoterId())
 
   const fetchPoll = useCallback(async (matchup) => {
@@ -364,7 +372,9 @@ export default function App() {
           fetchCandidates(DEM_SLUG, 'Democratic'),
           fetchCandidates(REP_SLUG, 'Republican'),
         ])
-        setMatchups(buildMatchups(dems, reps))
+        setDemCandidates(dems)
+        setRepCandidates(reps)
+        setMatchups(buildMatchups(dems, reps, randomness))
 
         // Prefetch photos for top candidates on each side
         const topNames = [
@@ -382,6 +392,12 @@ export default function App() {
       }
     })()
   }, [])
+
+  useEffect(() => {
+    if (!demCandidates.length || !repCandidates.length) return
+    setMatchups(buildMatchups(demCandidates, repCandidates, randomness))
+    setIdx(0)
+  }, [demCandidates, repCandidates, randomness])
 
   const prev = useCallback(() => {
     setIdx(i => (i === 0 ? Math.max(0, matchups.length - 1) : i - 1))
@@ -437,6 +453,33 @@ export default function App() {
       <header className="app-header">
         <span className="header-title">2028 Presidential Matchups</span>
         <div className="header-actions">
+          <div className="settings-wrap">
+            <button
+              type="button"
+              className="header-btn settings-btn"
+              aria-label="Matchup randomness settings"
+              onClick={() => setShowSettings(s => !s)}
+            >
+              ⚙
+            </button>
+            {showSettings && (
+              <div className="settings-popover">
+                <div className="settings-title">Matchup randomness</div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={Math.round(randomness * 100)}
+                  onChange={(e) => setRandomness(Number(e.target.value) / 100)}
+                  className="settings-slider"
+                />
+                <div className="settings-scale">
+                  <span>More likely</span>
+                  <span>More random</span>
+                </div>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="header-btn"
