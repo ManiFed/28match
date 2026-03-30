@@ -374,10 +374,11 @@ function findNextUnvotedIndex(matchups, votedKeys, startIndex = 0, direction = 1
   return -1
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick, predictionActive }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick, predictionChance = 0 }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   const clickTimerRef = useRef(null)
+  const hasPrediction = predictionChance > 0
 
   useEffect(() => {
     return () => {
@@ -416,18 +417,27 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
         type="button"
         disabled={!canVote}
         aria-label={`Vote for ${candidate.name} (${isDem ? 'Democrat' : 'Republican'})`}
+        style={{ '--prediction-strength': predictionChance }}
       >
         <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
         <div className="vote-sparkle" aria-hidden="true" />
-        {predictionActive && (
+        {hasPrediction && (
           <div className="prediction-waves" aria-hidden="true">
             <span />
             <span />
             <span />
           </div>
         )}
-        <div className={`photo-wrapper ${predictionActive ? 'prediction-photo-ring' : ''}`} key={animKey}>
-          <img src={imageUrl} alt={candidate.name} className={`candidate-photo ${predictionActive ? 'prediction-photo-pulse' : ''}`} />
+        <div
+          className={`photo-wrapper ${hasPrediction ? 'prediction-photo-ring' : ''}`}
+          key={animKey}
+        >
+          <img
+            src={imageUrl}
+            alt={candidate.name}
+            className={`candidate-photo ${hasPrediction ? 'prediction-photo-pulse' : ''}`}
+            style={{ '--prediction-strength': predictionChance }}
+          />
         </div>
         <div className="candidate-info" key={`info-${animKey}`}>
           <h2 className="candidate-name">
@@ -520,7 +530,12 @@ export default function App() {
   const [streakFxTick, setStreakFxTick] = useState(0)
   const [badgeMessage, setBadgeMessage] = useState('')
   const [badgeFxTick, setBadgeFxTick] = useState(0)
-  const [predictionFx, setPredictionFx] = useState({ side: null, tick: 0 })
+  const [predictionFx, setPredictionFx] = useState({
+    side: null,
+    key: null,
+    demChance: 0,
+    repChance: 0,
+  })
   const [predictionModel, setPredictionModel] = useState({
     sideBias: { dem: 0, rep: 0 },
     traitBias: { underdog: 0, favorite: 0 },
@@ -694,7 +709,9 @@ export default function App() {
           setLiveMessage('Prediction missed — recalibrating to your latest vote pattern.')
         }
       }
-      setPredictionFx(prev => (prev.key === key ? { side: null, key: null } : prev))
+      setPredictionFx(prev => (prev.key === key
+        ? { side: null, key: null, demChance: 0, repChance: 0 }
+        : prev))
       if (activeRecommendationType) {
         setRecommendationEngagement(prev => ({
           ...prev,
@@ -758,10 +775,21 @@ export default function App() {
         }
     const demScore = demTagScore + (predictionModel.sideBias?.dem || 0) + favoredTraitScore.dem + (predictionModel.traitBias?.[profile.preferredTrait] || 0)
     const repScore = repTagScore + (predictionModel.sideBias?.rep || 0) + favoredTraitScore.rep + (predictionModel.traitBias?.[profile.preferredTrait] || 0)
+    const maxScore = Math.max(demScore, repScore)
+    const demExp = Math.exp(demScore - maxScore)
+    const repExp = Math.exp(repScore - maxScore)
+    const totalExp = demExp + repExp || 1
+    const demChance = demExp / totalExp
+    const repChance = repExp / totalExp
     const preferredSide = demScore === repScore ? favoredByTrait : demScore > repScore ? 'dem' : 'rep'
-    setPredictionFx({ side: preferredSide, key: `${activeMatchup.dem.id}-${activeMatchup.rep.id}` })
+    setPredictionFx({
+      side: preferredSide,
+      key: `${activeMatchup.dem.id}-${activeMatchup.rep.id}`,
+      demChance,
+      repChance,
+    })
     setLiveMessage(
-      `Predicted pick: ${preferredSide === 'dem' ? activeMatchup.dem.name : activeMatchup.rep.name}.`
+      `Predicted pick: ${preferredSide === 'dem' ? activeMatchup.dem.name : activeMatchup.rep.name} (${(Math.max(demChance, repChance) * 100).toFixed(1)}%).`
     )
   }, [activeIdx, demCandidates, matchups, predictionModel, repCandidates, sessionVotes])
 
@@ -1030,6 +1058,7 @@ export default function App() {
   const current = matchups[activeIdx] ?? matchups[0]
   const currentMatchupKey = current ? `${current.dem.id}-${current.rep.id}` : null
   const alreadyVotedCurrent = currentMatchupKey ? votedKeys.has(currentMatchupKey) : false
+  const showPredictionForCurrent = predictionFx.key === currentMatchupKey && !alreadyVotedCurrent
 
   const handleArenaTouchStart = useCallback((event) => {
     const touch = event.changedTouches[0]
@@ -1366,7 +1395,7 @@ export default function App() {
           onVote={(strength) => { vote('dem', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
-          predictionActive={predictionFx.side === 'dem' && predictionFx.key === currentMatchupKey && !alreadyVotedCurrent}
+          predictionChance={showPredictionForCurrent ? predictionFx.demChance : 0}
           flashStrength={voteFx.side === 'dem' ? voteFx.strength : 'normal'}
         />
 
@@ -1414,6 +1443,18 @@ export default function App() {
             <div className="controls-row"><kbd>↑</kbd>/<kbd>↓</kbd> prev/next matchup</div>
           </div>
 
+          {showPredictionForCurrent && (
+            <div className="prediction-prob-bar" role="status" aria-live="polite">
+              <div className="prediction-prob-track">
+                <div className="prediction-prob-segment prediction-prob-dem" style={{ width: `${predictionFx.demChance * 100}%` }} />
+                <div className="prediction-prob-segment prediction-prob-rep" style={{ width: `${predictionFx.repChance * 100}%` }} />
+              </div>
+              <div className="prediction-prob-labels">
+                <span>{current.dem.name.split(' ')[0]} {(predictionFx.demChance * 100).toFixed(1)}%</span>
+                <span>{current.rep.name.split(' ')[0]} {(predictionFx.repChance * 100).toFixed(1)}%</span>
+              </div>
+            </div>
+          )}
           <button type="button" className="header-btn predict-btn" onClick={predictVote}>
             Predict my vote
           </button>
@@ -1427,7 +1468,7 @@ export default function App() {
           onVote={(strength) => { vote('rep', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
-          predictionActive={predictionFx.side === 'rep' && predictionFx.key === currentMatchupKey && !alreadyVotedCurrent}
+          predictionChance={showPredictionForCurrent ? predictionFx.repChance : 0}
           flashStrength={voteFx.side === 'rep' ? voteFx.strength : 'normal'}
         />
       </main>
