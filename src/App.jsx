@@ -452,6 +452,9 @@ export default function App() {
     }
   }, [])
 
+  const votedKeys = useMemo(() => new Set(sessionVotes.map(vote => vote.key)), [sessionVotes])
+  const allMatchupsCompleted = matchups.length > 0 && votedKeys.size >= matchups.length
+
   const vote = useCallback(async (side) => {
     if (voteAdvancePending) return
     const currentMatchup = matchups[idx]
@@ -727,9 +730,6 @@ export default function App() {
         setPhotos(prev => ({ ...prev, ...found }))
       })
   }, [idx, matchups, photos])
-
-  const votedKeys = useMemo(() => new Set(sessionVotes.map(vote => vote.key)), [sessionVotes])
-  const allMatchupsCompleted = matchups.length > 0 && votedKeys.size >= matchups.length
 
   const prev = useCallback(() => {
     setIdx(i => {
