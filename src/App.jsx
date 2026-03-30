@@ -8,6 +8,35 @@ const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
 const VOTE_CONFIRMATION_MS = 500
 const SWIPE_THRESHOLD_PX = 52
 const BADGE_MILESTONES = [5, 15, 30]
+const REQUEST_TIMEOUT_MS = 12000
+const APP_BOOT_TIMEOUT_MS = 15000
+const FALLBACK_DEMS = [
+  { id: 'fallback-dem-1', name: 'Gavin Newsom', prob: 0.23 },
+  { id: 'fallback-dem-2', name: 'Gretchen Whitmer', prob: 0.19 },
+  { id: 'fallback-dem-3', name: 'Alexandria Ocasio-Cortez', prob: 0.12 },
+]
+const FALLBACK_REPS = [
+  { id: 'fallback-rep-1', name: 'Donald Trump', prob: 0.41 },
+  { id: 'fallback-rep-2', name: 'Ron DeSantis', prob: 0.22 },
+  { id: 'fallback-rep-3', name: 'Nikki Haley', prob: 0.13 },
+]
+
+async function fetchJsonWithTimeout(url, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    if (!res.ok) throw new Error(`Request failed (${res.status})`)
+    return await res.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Request timed out. Please check your internet connection and try again.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
 
 function loadSessionVotes() {
   try {
@@ -51,9 +80,7 @@ function saveRecommendationEngagement(engagement) {
 }
 
 async function fetchCandidates(slug, partyLabel) {
-  const res = await fetch(`/api/polymarket/events?slug=${slug}`)
-  if (!res.ok) throw new Error(`Polymarket API returned ${res.status}`)
-  const events = await res.json()
+  const events = await fetchJsonWithTimeout(`/api/polymarket/events?slug=${slug}`)
 
   const eventList = Array.isArray(events) ? events : [events]
   const event = eventList.find(e => e?.slug === slug) || eventList[0]
@@ -311,11 +338,16 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
   )
 }
 
-function LoadingScreen() {
+function LoadingScreen({ timedOut }) {
   return (
     <div className="centered-screen">
       <div className="spinner" />
       <p className="loading-text">Loading Polymarket data…</p>
+      {timedOut && (
+        <p className="loading-help">
+          This is taking longer than expected. If the page stays blank, refresh and make sure the API server is running.
+        </p>
+      )}
     </div>
   )
 }
@@ -376,6 +408,8 @@ export default function App() {
   const [badgeFxTick, setBadgeFxTick] = useState(0)
   const [modeShiftFx, setModeShiftFx] = useState(false)
   const [showLegendPopup, setShowLegendPopup] = useState(false)
+  const [bootTimedOut, setBootTimedOut] = useState(false)
+  const [startupNotice, setStartupNotice] = useState('')
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
   const lastVotedSideRef = useRef(null)
@@ -609,15 +643,29 @@ export default function App() {
   }, [buildContrastingRecommendations, recommendationEngagement, sessionVotes])
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setBootTimedOut(true)
+    }, APP_BOOT_TIMEOUT_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
     ;(async () => {
       try {
-        const [dems, reps] = await Promise.all([
+        const [demsResponse, repsResponse] = await Promise.all([
           fetchCandidates(DEM_SLUG, 'Democratic'),
           fetchCandidates(REP_SLUG, 'Republican'),
         ])
+        const dems = demsResponse.length ? demsResponse : FALLBACK_DEMS
+        const reps = repsResponse.length ? repsResponse : FALLBACK_REPS
         setDemCandidates(dems)
         setRepCandidates(reps)
         setMatchups(buildMatchups(dems, reps, randomness))
+        if (!demsResponse.length || !repsResponse.length) {
+          setStartupNotice('Live market data is temporarily unavailable, so you are viewing fallback candidates.')
+        } else {
+          setStartupNotice('')
+        }
 
         // Prefetch photos for candidates most likely to appear first.
         const topNames = [
@@ -633,9 +681,14 @@ export default function App() {
             }))
           })
       } catch (err) {
-        setError(err.message)
+        setDemCandidates(FALLBACK_DEMS)
+        setRepCandidates(FALLBACK_REPS)
+        setMatchups(buildMatchups(FALLBACK_DEMS, FALLBACK_REPS, randomness))
+        setStartupNotice('Could not reach live market data. Showing fallback candidates so the page still works.')
+        setError(null)
       } finally {
         setLoading(false)
+        setBootTimedOut(false)
       }
     })()
   }, [])
@@ -812,7 +865,7 @@ export default function App() {
     }
   }, [allMatchupsCompleted, idx, matchups, votedKeys])
 
-  if (loading) return <LoadingScreen />
+  if (loading) return <LoadingScreen timedOut={bootTimedOut} />
   if (error) return <ErrorScreen message={error} />
   if (!matchups.length) return <ErrorScreen message="No matchups found in market data." />
 
@@ -940,6 +993,11 @@ export default function App() {
           </div>
         </div>
       </header>
+      {startupNotice && (
+        <div className="startup-notice" role="status" aria-live="polite">
+          {startupNotice}
+        </div>
+      )}
 
       {showInsights && (
         <section className="insights-drawer">
