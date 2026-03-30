@@ -1254,7 +1254,7 @@ export default function App() {
   const repSessionPct = totalSessionVotes ? (sessionVoteTotals.rep / totalSessionVotes) * 100 : 50
   const underdogPct = totalSessionVotes ? (sessionVoteTotals.underdog / totalSessionVotes) * 100 : 50
   const frontrunnerPct = totalSessionVotes ? (sessionVoteTotals.frontrunner / totalSessionVotes) * 100 : 50
-  const leaderboardData = useMemo(() => {
+  const leaderboardData = (() => {
     const byCandidate = new Map()
     sessionVotes.forEach((vote) => {
       const winnerName = vote.side === 'dem' ? vote.demName : vote.repName
@@ -1284,7 +1284,7 @@ export default function App() {
         compositeScore: (winRate * 0.6) + (voteShare * 0.4),
       }
     })
-  }, [sessionVotes, totalSessionVotes])
+  })()
   const leaderboardTotalVotes = totalSessionVotes
   const voteProfile = getVoteProfile(sessionVotes)
   const sortedLeaderboard = [...leaderboardData].sort((a, b) => {
