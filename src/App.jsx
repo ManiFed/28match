@@ -9,6 +9,8 @@ const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
 const VOTE_CONFIRMATION_MS = 500
 const STRONG_VOTE_CONFIRMATION_MS = 1000
 const PANEL_DOUBLE_CLICK_MS = 230
+const PANEL_LONG_PRESS_MS = 380
+const PANEL_TAP_MOVE_THRESHOLD_PX = 12
 const SWIPE_THRESHOLD_PX = 52
 const REQUEST_TIMEOUT_MS = 12000
 const INITIAL_RANDOMNESS = 0.2
@@ -399,6 +401,11 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   const clickTimerRef = useRef(null)
+  const longPressTimerRef = useRef(null)
+  const longPressTriggeredRef = useRef(false)
+  const suppressClickUntilRef = useRef(0)
+  const touchStartPosRef = useRef({ x: null, y: null })
+  const touchMovedRef = useRef(false)
   const hasPrediction = predictionChance > 0
 
   useEffect(() => {
@@ -406,11 +413,15 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
       if (clickTimerRef.current) {
         window.clearTimeout(clickTimerRef.current)
       }
+      if (longPressTimerRef.current) {
+        window.clearTimeout(longPressTimerRef.current)
+      }
     }
   }, [])
 
   const handleClick = useCallback(() => {
     if (!canVote) return
+    if (Date.now() < suppressClickUntilRef.current) return
     if (clickTimerRef.current) {
       window.clearTimeout(clickTimerRef.current)
     }
@@ -429,12 +440,71 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
     onVote('strong')
   }, [canVote, onVote])
 
+  const handleTouchStart = useCallback((event) => {
+    if (!canVote) return
+    const touch = event.changedTouches[0]
+    longPressTriggeredRef.current = false
+    touchMovedRef.current = false
+    touchStartPosRef.current = { x: touch?.clientX ?? null, y: touch?.clientY ?? null }
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current)
+    }
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true
+      suppressClickUntilRef.current = Date.now() + 600
+      onVote('strong')
+    }, PANEL_LONG_PRESS_MS)
+  }, [canVote, onVote])
+
+  const handleTouchMove = useCallback((event) => {
+    const touch = event.changedTouches[0]
+    const { x, y } = touchStartPosRef.current
+    if (!touch || x === null || y === null) return
+    const deltaX = Math.abs(touch.clientX - x)
+    const deltaY = Math.abs(touch.clientY - y)
+    if (deltaX > PANEL_TAP_MOVE_THRESHOLD_PX || deltaY > PANEL_TAP_MOVE_THRESHOLD_PX) {
+      touchMovedRef.current = true
+      if (longPressTimerRef.current) {
+        window.clearTimeout(longPressTimerRef.current)
+        longPressTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const handleTouchEnd = useCallback(() => {
+    if (!canVote) return
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+    const blocked = longPressTriggeredRef.current || touchMovedRef.current
+    touchStartPosRef.current = { x: null, y: null }
+    touchMovedRef.current = false
+    if (blocked) return
+    suppressClickUntilRef.current = Date.now() + 600
+    onVote('normal')
+  }, [canVote, onVote])
+
+  const handleTouchCancel = useCallback(() => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+    longPressTriggeredRef.current = false
+    touchMovedRef.current = false
+    touchStartPosRef.current = { x: null, y: null }
+  }, [])
+
   return (
     <div className="candidate-shell">
       <button
         className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''}`}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
         type="button"
         disabled={!canVote}
         aria-label={`Vote for ${candidate.name} (${isDem ? 'Democrat' : 'Republican'})`}
@@ -478,7 +548,7 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
             <span className="prob-pct">{(candidate.prob * 100).toFixed(1)}%</span>
             <span className="prob-label">nomination odds</span>
           </div>
-          <div className="vote-hint">Click to vote • Double-click for strong vote</div>
+          <div className="vote-hint">Tap/click to vote • Double-click or hold for strong vote</div>
         </div>
       </button>
     </div>
@@ -519,13 +589,8 @@ export default function App() {
   const [idx, setIdx] = useState(0)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [leaderboardSort, setLeaderboardSort] = useState('composite')
-  const [leaderboardData, setLeaderboardData] = useState([])
-  const [leaderboardTotalVotes, setLeaderboardTotalVotes] = useState(0)
-  const [leaderboardLoading, setLeaderboardLoading] = useState(false)
-  const [leaderboardError, setLeaderboardError] = useState(null)
   const [pollData, setPollData] = useState(null)
   const [pollLoading, setPollLoading] = useState(false)
-  const [pollError, setPollError] = useState(null)
   const [sessionVotes, setSessionVotes] = useState(() => loadSessionVotes())
   const [sessionSkips, setSessionSkips] = useState(() => loadSessionSkips())
   const [showInsights, setShowInsights] = useState(false)
@@ -593,22 +658,6 @@ export default function App() {
     saveRecommendationEngagement(recommendationEngagement)
   }, [recommendationEngagement])
 
-  const fetchPoll = useCallback(async (matchup) => {
-    const key = `${matchup.dem.id}-${matchup.rep.id}`
-    setPollLoading(true)
-    setPollError(null)
-    try {
-      const res = await fetch(`/api/poll/${encodeURIComponent(key)}`)
-      if (!res.ok) throw new Error(`Poll API returned ${res.status}`)
-      const data = await res.json()
-      setPollData(data)
-    } catch (err) {
-      setPollError(err.message)
-    } finally {
-      setPollLoading(false)
-    }
-  }, [])
-
   const votedKeys = useMemo(() => new Set(sessionVotes.map(vote => vote.key)), [sessionVotes])
   const allMatchupsCompleted = matchups.length > 0 && votedKeys.size >= matchups.length
 
@@ -638,26 +687,10 @@ export default function App() {
     }
 
     const isStrongVote = strength === 'strong'
-    const weight = isStrongVote ? 2 : 1
 
     setPollLoading(true)
-    setPollError(null)
     try {
-      const res = await fetch('/api/poll/vote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          key,
-          side,
-          weight,
-          dem: { id: currentMatchup.dem.id, name: currentMatchup.dem.name },
-          rep: { id: currentMatchup.rep.id, name: currentMatchup.rep.name },
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || `Poll vote failed (${res.status})`)
       setVoteFx({ side, tick: Date.now(), strength })
-      setPollData(data)
       setSessionVotes(prev => {
         const pickedCandidate = side === 'dem' ? currentMatchup.dem : currentMatchup.rep
         const pickedTags = getCandidateTags(
@@ -756,8 +789,6 @@ export default function App() {
         setVoteAdvancePending(false)
         voteAdvanceTimerRef.current = null
       }, isStrongVote ? STRONG_VOTE_CONFIRMATION_MS : VOTE_CONFIRMATION_MS)
-    } catch (err) {
-      setPollError(err.message)
     } finally {
       setPollLoading(false)
     }
@@ -814,22 +845,6 @@ export default function App() {
       `Predicted pick: ${preferredSide === 'dem' ? activeMatchup.dem.name : activeMatchup.rep.name} (${(Math.max(demChance, repChance) * 100).toFixed(1)}%).`
     )
   }, [activeIdx, demCandidates, matchups, predictionModel, repCandidates, sessionVotes])
-
-  const fetchLeaderboard = useCallback(async () => {
-    setLeaderboardLoading(true)
-    setLeaderboardError(null)
-    try {
-      const res = await fetch('/api/poll/leaderboard')
-      if (!res.ok) throw new Error(`Leaderboard API returned ${res.status}`)
-      const data = await res.json()
-      setLeaderboardData(data.leaderboard || [])
-      setLeaderboardTotalVotes(data.totalVotes || 0)
-    } catch (err) {
-      setLeaderboardError(err.message)
-    } finally {
-      setLeaderboardLoading(false)
-    }
-  }, [])
 
   const buildContrastingRecommendations = useCallback(() => {
     if (!matchups.length) return []
@@ -997,6 +1012,7 @@ export default function App() {
   const current = matchups[activeIdx] ?? matchups[0]
   const currentMatchupKey = current ? `${current.dem.id}-${current.rep.id}` : null
   const alreadyVotedCurrent = currentMatchupKey ? votedKeys.has(currentMatchupKey) : false
+  const showPredictionForCurrent = predictionFx.key === currentMatchupKey && !alreadyVotedCurrent
 
   const recordSkip = useCallback((direction) => {
     if (!current || !currentMatchupKey || alreadyVotedCurrent) return
@@ -1119,11 +1135,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [vote, next, prev])
 
-  const current = matchups[activeIdx] ?? matchups[0]
-  const currentMatchupKey = current ? `${current.dem.id}-${current.rep.id}` : null
-  const alreadyVotedCurrent = currentMatchupKey ? votedKeys.has(currentMatchupKey) : false
-  const showPredictionForCurrent = predictionFx.key === currentMatchupKey && !alreadyVotedCurrent
-
   const handleArenaTouchStart = useCallback((event) => {
     const touch = event.changedTouches[0]
     if (!touch) return
@@ -1144,13 +1155,16 @@ export default function App() {
 
   useEffect(() => {
     if (!current) return
-    fetchPoll(current)
-  }, [current, fetchPoll])
-
-  useEffect(() => {
-    if (!showLeaderboard) return
-    fetchLeaderboard()
-  }, [showLeaderboard, fetchLeaderboard, pollData?.totalVotes])
+    const key = `${current.dem.id}-${current.rep.id}`
+    const currentVotes = sessionVotes.filter(vote => vote.key === key)
+    const demVotes = currentVotes.filter(vote => vote.side === 'dem').length
+    const repVotes = currentVotes.filter(vote => vote.side === 'rep').length
+    setPollData({
+      demVotes,
+      repVotes,
+      totalVotes: demVotes + repVotes,
+    })
+  }, [current, sessionVotes])
 
   useEffect(() => {
     if (!showInsights) return
@@ -1183,6 +1197,38 @@ export default function App() {
   const repSessionPct = totalSessionVotes ? (sessionVoteTotals.rep / totalSessionVotes) * 100 : 50
   const underdogPct = totalSessionVotes ? (sessionVoteTotals.underdog / totalSessionVotes) * 100 : 50
   const frontrunnerPct = totalSessionVotes ? (sessionVoteTotals.frontrunner / totalSessionVotes) * 100 : 50
+  const leaderboardData = useMemo(() => {
+    const byCandidate = new Map()
+    sessionVotes.forEach((vote) => {
+      const winnerName = vote.side === 'dem' ? vote.demName : vote.repName
+      const loserName = vote.side === 'dem' ? vote.repName : vote.demName
+      const winnerParty = vote.side
+      const loserParty = vote.side === 'dem' ? 'rep' : 'dem'
+      const winnerId = vote.side === 'dem' ? `dem-${vote.demName}` : `rep-${vote.repName}`
+      const loserId = vote.side === 'dem' ? `rep-${vote.repName}` : `dem-${vote.demName}`
+
+      const winner = byCandidate.get(winnerId) || { id: winnerId, name: winnerName, party: winnerParty, votes: 0, wins: 0, appearances: 0 }
+      winner.votes += 1
+      winner.wins += 1
+      winner.appearances += 1
+      byCandidate.set(winnerId, winner)
+
+      const loser = byCandidate.get(loserId) || { id: loserId, name: loserName, party: loserParty, votes: 0, wins: 0, appearances: 0 }
+      loser.appearances += 1
+      byCandidate.set(loserId, loser)
+    })
+
+    return [...byCandidate.values()].map((entry) => {
+      const winRate = entry.appearances ? entry.wins / entry.appearances : 0
+      const voteShare = totalSessionVotes ? entry.votes / totalSessionVotes : 0
+      return {
+        ...entry,
+        winRate,
+        compositeScore: (winRate * 0.6) + (voteShare * 0.4),
+      }
+    })
+  }, [sessionVotes, totalSessionVotes])
+  const leaderboardTotalVotes = totalSessionVotes
   const voteProfile = getVoteProfile(sessionVotes)
   const sortedLeaderboard = [...leaderboardData].sort((a, b) => {
     if (leaderboardSort === 'votes') {
@@ -1250,7 +1296,7 @@ export default function App() {
                 </p>
                 <p>
                   Candidate percentages come from live nomination odds, while the poll percentages
-                  show votes cast by users inside this app.
+                  show votes stored locally on your device.
                 </p>
               </div>
             )}
@@ -1430,14 +1476,10 @@ export default function App() {
               </button>
             </div>
             <div className="leaderboard-body">
-              {leaderboardLoading && <div className="leaderboard-status">Loading leaderboard…</div>}
-              {!leaderboardLoading && leaderboardError && (
-                <div className="leaderboard-status leaderboard-error">{leaderboardError}</div>
-              )}
-              {!leaderboardLoading && !leaderboardError && sortedLeaderboard.length === 0 && (
+              {sortedLeaderboard.length === 0 && (
                 <div className="leaderboard-status">No votes yet.</div>
               )}
-              {!leaderboardLoading && !leaderboardError && sortedLeaderboard.map((entry, i) => (
+              {sortedLeaderboard.map((entry, i) => (
                 <div className="leaderboard-row" key={`${entry.party}-${entry.id}`}>
                   <span>#{i + 1}</span>
                   <span className="lb-name">{entry.name}</span>
@@ -1450,7 +1492,7 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <div className="leaderboard-footer">{leaderboardTotalVotes} total votes cast</div>
+            <div className="leaderboard-footer">{leaderboardTotalVotes} total local votes cast</div>
           </section>
         </div>
       )}
@@ -1493,7 +1535,7 @@ export default function App() {
           </div>
 
           <div className="poll-card">
-            <div className="poll-title">Polling results</div>
+            <div className="poll-title">Your local results</div>
             <div className="poll-results poll-results-visible">
               <div className="poll-row">
                 <span>{current.dem.name}</span>
@@ -1504,9 +1546,8 @@ export default function App() {
                 <span>{repVotePct.toFixed(0)}%</span>
               </div>
               <div className="poll-meta" role="status" aria-live="polite">
-                {pollLoading ? 'Updating poll…' : `${pollData?.totalVotes || 0} total votes`}
+                {pollLoading ? 'Updating your local results…' : `${pollData?.totalVotes || 0} local votes`}
               </div>
-              {pollError && <div className="poll-error">{pollError}</div>}
             </div>
           </div>
 
