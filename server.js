@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3000
 const matchupPolls = new Map()
+const candidateVoteTotals = new Map()
 
 app.use(express.json())
 
@@ -17,7 +18,7 @@ app.get('/api/poll/:key', (req, res) => {
 })
 
 app.post('/api/poll/vote', (req, res) => {
-  const { key, side } = req.body || {}
+  const { key, side, dem, rep } = req.body || {}
   if (!key || (side !== 'dem' && side !== 'rep')) {
     return res.status(400).json({ error: 'Invalid vote payload.' })
   }
@@ -27,7 +28,30 @@ app.post('/api/poll/vote', (req, res) => {
   if (side === 'rep') poll.repVotes += 1
   matchupPolls.set(key, poll)
 
+  const votedCandidate = side === 'dem' ? dem : rep
+  if (votedCandidate?.id && votedCandidate?.name) {
+    const candidateKey = `${side}:${votedCandidate.id}`
+    const existing = candidateVoteTotals.get(candidateKey) || {
+      id: votedCandidate.id,
+      name: votedCandidate.name,
+      party: side,
+      votes: 0,
+    }
+    existing.votes += 1
+    candidateVoteTotals.set(candidateKey, existing)
+  }
+
   res.json({ key, ...poll, totalVotes: poll.demVotes + poll.repVotes })
+})
+
+app.get('/api/poll/leaderboard', (_req, res) => {
+  const leaderboard = [...candidateVoteTotals.values()]
+    .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
+
+  res.json({
+    totalVotes: leaderboard.reduce((sum, entry) => sum + entry.votes, 0),
+    leaderboard,
+  })
 })
 
 app.use(
