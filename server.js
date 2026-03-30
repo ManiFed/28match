@@ -63,9 +63,10 @@ async function getPollSummary(key) {
   }
 }
 
-async function upsertVote({ key, side, dem, rep }) {
-  const demDelta = side === 'dem' ? 1 : 0
-  const repDelta = side === 'rep' ? 1 : 0
+async function upsertVote({ key, side, dem, rep, weight = 1 }) {
+  const normalizedWeight = Number.isFinite(weight) ? Math.max(1, Math.min(2, Math.round(weight))) : 1
+  const demDelta = side === 'dem' ? normalizedWeight : 0
+  const repDelta = side === 'rep' ? normalizedWeight : 0
 
   const totalsResult = await pool.query(
     `INSERT INTO matchup_vote_totals (
@@ -168,7 +169,7 @@ app.get('/api/poll/:key', async (req, res) => {
 })
 
 app.post('/api/poll/vote', async (req, res) => {
-  const { key, side, dem, rep } = req.body || {}
+  const { key, side, dem, rep, weight } = req.body || {}
   if (!key || (side !== 'dem' && side !== 'rep')) {
     return res.status(400).json({ error: 'Invalid vote payload.' })
   }
@@ -178,7 +179,7 @@ app.post('/api/poll/vote', async (req, res) => {
   }
 
   try {
-    res.json(await upsertVote({ key, side, dem, rep }))
+    res.json(await upsertVote({ key, side, dem, rep, weight }))
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to record vote.' })
   }

@@ -6,6 +6,8 @@ const REP_SLUG = 'republican-presidential-nominee-2028'
 const SESSION_VOTES_STORAGE_KEY = 'sessionVotes'
 const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
 const VOTE_CONFIRMATION_MS = 500
+const STRONG_VOTE_CONFIRMATION_MS = 1000
+const PANEL_DOUBLE_CLICK_MS = 230
 const SWIPE_THRESHOLD_PX = 52
 const BADGE_MILESTONES = [5, 15, 30]
 const REQUEST_TIMEOUT_MS = 12000
@@ -297,14 +299,45 @@ function findNextUnvotedIndex(matchups, votedKeys, startIndex = 0, direction = 1
   return -1
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick, flashStrength }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
+  const clickTimerRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current) {
+        window.clearTimeout(clickTimerRef.current)
+      }
+    }
+  }, [])
+
+  const handleClick = useCallback(() => {
+    if (!canVote) return
+    if (clickTimerRef.current) {
+      window.clearTimeout(clickTimerRef.current)
+    }
+    clickTimerRef.current = window.setTimeout(() => {
+      onVote('normal')
+      clickTimerRef.current = null
+    }, PANEL_DOUBLE_CLICK_MS)
+  }, [canVote, onVote])
+
+  const handleDoubleClick = useCallback(() => {
+    if (!canVote) return
+    if (clickTimerRef.current) {
+      window.clearTimeout(clickTimerRef.current)
+      clickTimerRef.current = null
+    }
+    onVote('strong')
+  }, [canVote, onVote])
+
   return (
     <div className="candidate-shell">
       <button
-        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''}`}
-        onClick={onVote}
+        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''} ${flashTick && flashStrength === 'strong' ? 'vote-flash-strong' : ''}`}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
         type="button"
         disabled={!canVote}
         aria-label={`Vote for ${candidate.name} (${isDem ? 'Democrat' : 'Republican'})`}
@@ -332,7 +365,7 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
             <span className="prob-pct">{(candidate.prob * 100).toFixed(1)}%</span>
             <span className="prob-label">nomination odds</span>
           </div>
-          <div className="vote-hint">Click to vote</div>
+          <div className="vote-hint">Click to vote • Double-click for strong vote</div>
         </div>
       </button>
     </div>
@@ -393,7 +426,7 @@ export default function App() {
   const [recommendationEngagement, setRecommendationEngagement] = useState(() => loadRecommendationEngagement())
   const [recommendedMatchups, setRecommendedMatchups] = useState([])
   const [activeRecommendationType, setActiveRecommendationType] = useState(null)
-  const [voteFx, setVoteFx] = useState({ side: null, tick: 0 })
+  const [voteFx, setVoteFx] = useState({ side: null, tick: 0, strength: 'normal' })
   const [demCandidates, setDemCandidates] = useState(FALLBACK_DEMS)
   const [repCandidates, setRepCandidates] = useState(FALLBACK_REPS)
   const [randomness, setRandomness] = useState(INITIAL_RANDOMNESS)
@@ -467,7 +500,7 @@ export default function App() {
     return findNextUnvotedIndex(matchups, votedKeys, normalizedIdx, 1)
   }, [allMatchupsCompleted, idx, matchups, votedKeys])
 
-  const vote = useCallback(async (side) => {
+  const vote = useCallback(async (side, strength = 'normal') => {
     if (voteAdvancePending) return
     const currentMatchup = matchups[activeIdx]
     if (!currentMatchup) return
@@ -479,6 +512,9 @@ export default function App() {
       return
     }
 
+    const isStrongVote = strength === 'strong'
+    const weight = isStrongVote ? 2 : 1
+
     setPollLoading(true)
     setPollError(null)
     try {
@@ -488,13 +524,14 @@ export default function App() {
         body: JSON.stringify({
           key,
           side,
+          weight,
           dem: { id: currentMatchup.dem.id, name: currentMatchup.dem.name },
           rep: { id: currentMatchup.rep.id, name: currentMatchup.rep.name },
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Poll vote failed (${res.status})`)
-      setVoteFx({ side, tick: Date.now() })
+      setVoteFx({ side, tick: Date.now(), strength })
       setPollData(data)
       setSessionVotes(prev => {
         const nextVotes = [
@@ -520,7 +557,8 @@ export default function App() {
           setStreakFxTick(Date.now())
           setLiveMessage(`${nextStreak} vote streak for ${side === 'dem' ? 'Democrats' : 'Republicans'}.`)
         } else {
-          setLiveMessage(`Vote recorded for ${side === 'dem' ? currentMatchup.dem.name : currentMatchup.rep.name}.`)
+          const prefix = isStrongVote ? 'Strong vote recorded' : 'Vote recorded'
+          setLiveMessage(`${prefix} for ${side === 'dem' ? currentMatchup.dem.name : currentMatchup.rep.name}.`)
         }
         const unlockedMilestone = BADGE_MILESTONES.find(
           threshold => nextVotes.length >= threshold && prev.length < threshold
@@ -554,7 +592,7 @@ export default function App() {
         })
         setVoteAdvancePending(false)
         voteAdvanceTimerRef.current = null
-      }, VOTE_CONFIRMATION_MS)
+      }, isStrongVote ? STRONG_VOTE_CONFIRMATION_MS : VOTE_CONFIRMATION_MS)
     } catch (err) {
       setPollError(err.message)
     } finally {
@@ -1144,9 +1182,10 @@ export default function App() {
           photo={photos[current.dem.name]}
           party="dem"
           animKey={`dem-${activeIdx}`}
-          onVote={() => { vote('dem') }}
+          onVote={(strength) => { vote('dem', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
+          flashStrength={voteFx.side === 'dem' ? voteFx.strength : 'normal'}
         />
 
         <div className="vs-column" role="region" aria-label="Matchup status">
@@ -1208,9 +1247,10 @@ export default function App() {
           photo={photos[current.rep.name]}
           party="rep"
           animKey={`rep-${activeIdx}`}
-          onVote={() => { vote('rep') }}
+          onVote={(strength) => { vote('rep', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
+          flashStrength={voteFx.side === 'rep' ? voteFx.strength : 'normal'}
         />
       </main>
       {showLegendPopup && allMatchupsCompleted && (
