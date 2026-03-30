@@ -142,13 +142,14 @@ function Initials({ name, party }) {
   )
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote }) {
   const isDem = party === 'dem'
   return (
     <button
       className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'}`}
       onClick={onVote}
       type="button"
+      disabled={!canVote}
     >
       <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
       <div className="photo-wrapper" key={animKey}>
@@ -231,8 +232,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, side }),
       })
-      if (!res.ok) throw new Error(`Poll vote failed (${res.status})`)
       const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Poll vote failed (${res.status})`)
       setPollData(data)
       setVotedKeys(prev => ({ ...prev, [key]: true }))
     } catch (err) {
@@ -275,11 +276,11 @@ export default function App() {
     const handler = (e) => {
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        vote('dem')
+        if (!pollData?.hasVoted) vote('dem')
       }
       if (e.key === 'ArrowRight') {
         e.preventDefault()
-        vote('rep')
+        if (!pollData?.hasVoted) vote('rep')
       }
       if (e.key === ' ') {
         e.preventDefault()
@@ -288,7 +289,7 @@ export default function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [vote, next])
+  }, [vote, next, pollData?.hasVoted])
 
   const current = matchups[idx]
   const currentKey = current ? `${current.dem.id}-${current.rep.id}` : null
@@ -310,6 +311,7 @@ export default function App() {
   if (!matchups.length) return <ErrorScreen message="No matchups found in market data." />
 
   const total = matchups.length
+  const hasVoted = Boolean(pollData?.hasVoted)
   const demVotePct = pollData?.totalVotes ? (pollData.demVotes / pollData.totalVotes) * 100 : 0
   const repVotePct = pollData?.totalVotes ? (pollData.repVotes / pollData.totalVotes) * 100 : 0
 
@@ -328,7 +330,8 @@ export default function App() {
           photo={photos[current.dem.name]}
           party="dem"
           animKey={`dem-${idx}`}
-          onVote={() => vote('dem')}
+          onVote={() => { if (!hasVoted) vote('dem') }}
+          canVote={!hasVoted && !pollLoading}
         />
 
         <div className="vs-column">
@@ -390,7 +393,8 @@ export default function App() {
           photo={photos[current.rep.name]}
           party="rep"
           animKey={`rep-${idx}`}
-          onVote={() => vote('rep')}
+          onVote={() => { if (!hasVoted) vote('rep') }}
+          canVote={!hasVoted && !pollLoading}
         />
       </main>
     </div>
