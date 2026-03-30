@@ -733,6 +733,18 @@ export default function App() {
   const total = matchups.length
   const demVotePct = pollData?.totalVotes ? (pollData.demVotes / pollData.totalVotes) * 100 : 0
   const repVotePct = pollData?.totalVotes ? (pollData.repVotes / pollData.totalVotes) * 100 : 0
+  const sessionVoteTotals = sessionVotes.reduce((acc, vote) => {
+    acc[vote.side] += 1
+    const trait = classifyVote(vote)
+    if (trait === 'underdog') acc.underdog += 1
+    if (trait === 'favorite') acc.frontrunner += 1
+    return acc
+  }, { dem: 0, rep: 0, underdog: 0, frontrunner: 0 })
+  const totalSessionVotes = sessionVoteTotals.dem + sessionVoteTotals.rep
+  const demSessionPct = totalSessionVotes ? (sessionVoteTotals.dem / totalSessionVotes) * 100 : 50
+  const repSessionPct = totalSessionVotes ? (sessionVoteTotals.rep / totalSessionVotes) * 100 : 50
+  const underdogPct = totalSessionVotes ? (sessionVoteTotals.underdog / totalSessionVotes) * 100 : 50
+  const frontrunnerPct = totalSessionVotes ? (sessionVoteTotals.frontrunner / totalSessionVotes) * 100 : 50
   const sortedLeaderboard = [...leaderboardData].sort((a, b) => {
     if (leaderboardSort === 'votes') {
       return b.votes - a.votes || b.winRate - a.winRate || a.name.localeCompare(b.name)
@@ -823,7 +835,23 @@ export default function App() {
           >
             {showInsights ? 'Hide insights' : 'Insights'}
           </button>
-          <span className="header-sub">Live odds from Polymarket · {total} matchups ranked by probability</span>
+          <div className="header-vote-stats" aria-label="Your vote distribution">
+            <span className="header-sub">{total} matchups ranked by probability</span>
+            <div className="vote-split-row">
+              <span className="vote-split-label">Dem vs Rep</span>
+              <div className="vote-split-bar" role="img" aria-label={`${demSessionPct.toFixed(0)} percent Democrat and ${repSessionPct.toFixed(0)} percent Republican votes`}>
+                <div className="vote-segment vote-segment-dem" style={{ width: `${demSessionPct}%` }} />
+                <div className="vote-segment vote-segment-rep" style={{ width: `${repSessionPct}%` }} />
+              </div>
+            </div>
+            <div className="vote-split-row">
+              <span className="vote-split-label">Underdog vs Frontrunner</span>
+              <div className="vote-split-bar" role="img" aria-label={`${underdogPct.toFixed(0)} percent underdog and ${frontrunnerPct.toFixed(0)} percent frontrunner votes`}>
+                <div className="vote-segment vote-segment-underdog" style={{ width: `${underdogPct}%` }} />
+                <div className="vote-segment vote-segment-frontrunner" style={{ width: `${frontrunnerPct}%` }} />
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 
