@@ -174,6 +174,35 @@
   outline-offset: -6px;
 }
 
+
+.candidate-panel.vote-flash {
+  animation: votePulse 420ms ease-out;
+}
+
+.candidate-panel .vote-sparkle {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(circle, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.15) 28%, rgba(255,255,255,0) 62%);
+}
+
+.candidate-panel.vote-flash .vote-sparkle {
+  animation: voteSpark 480ms ease-out;
+}
+
+@keyframes votePulse {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+@keyframes voteSpark {
+  0% { opacity: 0; transform: scale(0.45); }
+  20% { opacity: 0.8; }
+  100% { opacity: 0; transform: scale(1.15); }
+}
+
 .panel-dem {
   background: linear-gradient(160deg, #001f5b 0%, #003087 40%, #004aad 100%);
 }
