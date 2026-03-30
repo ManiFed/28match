@@ -410,6 +410,7 @@ export default function App() {
   const [showLegendPopup, setShowLegendPopup] = useState(false)
   const [bootTimedOut, setBootTimedOut] = useState(false)
   const [startupNotice, setStartupNotice] = useState('')
+  const [loading, setLoading] = useState(true)
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
   const lastVotedSideRef = useRef(null)
