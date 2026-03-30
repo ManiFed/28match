@@ -311,6 +311,7 @@ export default function App() {
   const [idx, setIdx] = useState(0)
   const [showList, setShowList] = useState(false)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
+  const [leaderboardSort, setLeaderboardSort] = useState('winRate')
   const [leaderboardData, setLeaderboardData] = useState([])
   const [leaderboardTotalVotes, setLeaderboardTotalVotes] = useState(0)
   const [leaderboardLoading, setLeaderboardLoading] = useState(false)
@@ -551,6 +552,12 @@ export default function App() {
   const selectedSide = pollData?.userVote || null
   const demVotePct = pollData?.totalVotes ? (pollData.demVotes / pollData.totalVotes) * 100 : 0
   const repVotePct = pollData?.totalVotes ? (pollData.repVotes / pollData.totalVotes) * 100 : 0
+  const sortedLeaderboard = [...leaderboardData].sort((a, b) => {
+    if (leaderboardSort === 'votes') {
+      return b.votes - a.votes || b.winRate - a.winRate || a.name.localeCompare(b.name)
+    }
+    return b.winRate - a.winRate || b.votes - a.votes || a.name.localeCompare(b.name)
+  })
 
   return (
     <div className="app">
@@ -649,34 +656,60 @@ export default function App() {
       )}
 
       {showLeaderboard && (
-        <section className="leaderboard-drawer">
-          <div className="leaderboard-header">
-            <span>Rank</span>
-            <span>Name</span>
-            <span>Party</span>
-            <span>Votes</span>
-          </div>
-          <div className="leaderboard-body">
-            {leaderboardLoading && <div className="leaderboard-status">Loading leaderboard…</div>}
-            {!leaderboardLoading && leaderboardError && (
-              <div className="leaderboard-status leaderboard-error">{leaderboardError}</div>
-            )}
-            {!leaderboardLoading && !leaderboardError && leaderboardData.length === 0 && (
-              <div className="leaderboard-status">No votes yet.</div>
-            )}
-            {!leaderboardLoading && !leaderboardError && leaderboardData.map((entry, i) => (
-              <div className="leaderboard-row" key={`${entry.party}-${entry.id}`}>
-                <span>#{i + 1}</span>
-                <span className="lb-name">{entry.name}</span>
-                <span className={entry.party === 'dem' ? 'lb-party lb-dem' : 'lb-party lb-rep'}>
-                  {entry.party === 'dem' ? 'Democrat' : 'Republican'}
-                </span>
-                <span>{entry.votes}</span>
-              </div>
-            ))}
-          </div>
-          <div className="leaderboard-footer">{leaderboardTotalVotes} total votes cast</div>
-        </section>
+        <div className="leaderboard-modal-backdrop" onClick={() => setShowLeaderboard(false)}>
+          <section className="leaderboard-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="leaderboard-modal-top">
+              <h2>Leaderboard</h2>
+              <button
+                type="button"
+                className="header-btn leaderboard-close-btn"
+                onClick={() => setShowLeaderboard(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="leaderboard-header">
+              <span>Rank</span>
+              <span>Name</span>
+              <span>Party</span>
+              <button
+                type="button"
+                className={`leaderboard-sort-btn ${leaderboardSort === 'winRate' ? 'active' : ''}`}
+                onClick={() => setLeaderboardSort('winRate')}
+              >
+                Win %
+              </button>
+              <button
+                type="button"
+                className={`leaderboard-sort-btn ${leaderboardSort === 'votes' ? 'active' : ''}`}
+                onClick={() => setLeaderboardSort('votes')}
+              >
+                Total votes
+              </button>
+            </div>
+            <div className="leaderboard-body">
+              {leaderboardLoading && <div className="leaderboard-status">Loading leaderboard…</div>}
+              {!leaderboardLoading && leaderboardError && (
+                <div className="leaderboard-status leaderboard-error">{leaderboardError}</div>
+              )}
+              {!leaderboardLoading && !leaderboardError && sortedLeaderboard.length === 0 && (
+                <div className="leaderboard-status">No votes yet.</div>
+              )}
+              {!leaderboardLoading && !leaderboardError && sortedLeaderboard.map((entry, i) => (
+                <div className="leaderboard-row" key={`${entry.party}-${entry.id}`}>
+                  <span>#{i + 1}</span>
+                  <span className="lb-name">{entry.name}</span>
+                  <span className={entry.party === 'dem' ? 'lb-party lb-dem' : 'lb-party lb-rep'}>
+                    {entry.party === 'dem' ? 'Democrat' : 'Republican'}
+                  </span>
+                  <span>{(entry.winRate * 100).toFixed(1)}%</span>
+                  <span>{entry.votes}</span>
+                </div>
+              ))}
+            </div>
+            <div className="leaderboard-footer">{leaderboardTotalVotes} total votes cast</div>
+          </section>
+        </div>
       )}
 
       {/* Main arena */}
