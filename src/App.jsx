@@ -269,6 +269,14 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [voterId] = useState(() => getOrCreateVoterId())
 
+  useEffect(() => {
+    if (!voteFx.side) return
+    const timer = window.setTimeout(() => {
+      setVoteFx(prev => ({ ...prev, side: null }))
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [voteFx.side, voteFx.tick])
+
   const fetchPoll = useCallback(async (matchup) => {
     const key = `${matchup.dem.id}-${matchup.rep.id}`
     setPollLoading(true)
