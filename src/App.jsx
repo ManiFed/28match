@@ -6,6 +6,7 @@ const REP_SLUG = 'republican-presidential-nominee-2028'
 const SESSION_VOTES_STORAGE_KEY = 'sessionVotes'
 const SESSION_SKIPS_STORAGE_KEY = 'sessionSkips'
 const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
+const MATCHUP_ORDER_STORAGE_KEY = 'matchupOrder'
 const VOTE_CONFIRMATION_MS = 500
 const STRONG_VOTE_CONFIRMATION_MS = 1000
 const PANEL_DOUBLE_CLICK_MS = 230
@@ -98,6 +99,35 @@ function loadRecommendationEngagement() {
 function saveRecommendationEngagement(engagement) {
   try {
     window.localStorage.setItem(RECOMMENDATION_ENGAGEMENT_KEY, JSON.stringify(engagement))
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function getMatchupSignature(dems, reps, randomness) {
+  return JSON.stringify({
+    randomness: Number(randomness.toFixed(3)),
+    dems: dems.map(candidate => ({ id: candidate.id, prob: Number(candidate.prob.toFixed(6)) })),
+    reps: reps.map(candidate => ({ id: candidate.id, prob: Number(candidate.prob.toFixed(6)) })),
+  })
+}
+
+function loadStoredMatchupOrder(signature) {
+  try {
+    const raw = window.localStorage.getItem(MATCHUP_ORDER_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (parsed?.signature !== signature) return null
+    return Array.isArray(parsed?.order) ? parsed.order : null
+  } catch {
+    return null
+  }
+}
+
+function saveStoredMatchupOrder(signature, matchups) {
+  try {
+    const order = matchups.map(matchup => `${matchup.dem.id}-${matchup.rep.id}`)
+    window.localStorage.setItem(MATCHUP_ORDER_STORAGE_KEY, JSON.stringify({ signature, order }))
   } catch {
     // Ignore storage failures.
   }
@@ -263,6 +293,27 @@ function buildMatchups(dems, reps, randomness = 0) {
       const baseProb = dem.prob * rep.prob
       return { dem, rep, prob: baseProb }
     })
+}
+
+function buildStableMatchups(dems, reps, randomness = 0) {
+  const generated = buildMatchups(dems, reps, randomness)
+  const signature = getMatchupSignature(dems, reps, randomness)
+  const storedOrder = loadStoredMatchupOrder(signature)
+
+  if (!storedOrder) {
+    saveStoredMatchupOrder(signature, generated)
+    return generated
+  }
+
+  const byKey = new Map(generated.map(matchup => [`${matchup.dem.id}-${matchup.rep.id}`, matchup]))
+  const ordered = storedOrder
+    .map(key => byKey.get(key))
+    .filter(Boolean)
+  const missing = generated.filter(matchup => !storedOrder.includes(`${matchup.dem.id}-${matchup.rep.id}`))
+  const merged = [...ordered, ...missing]
+
+  saveStoredMatchupOrder(signature, merged)
+  return merged
 }
 
 function classifyVote(vote) {
@@ -514,7 +565,7 @@ function ErrorScreen({ message }) {
 
 export default function App() {
   const [error, setError] = useState(null)
-  const [matchups, setMatchups] = useState(() => buildMatchups(FALLBACK_DEMS, FALLBACK_REPS, INITIAL_RANDOMNESS))
+  const [matchups, setMatchups] = useState(() => buildStableMatchups(FALLBACK_DEMS, FALLBACK_REPS, INITIAL_RANDOMNESS))
   const [photos, setPhotos] = useState({})
   const [idx, setIdx] = useState(0)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
@@ -927,7 +978,7 @@ export default function App() {
         const reps = repsResponse.length ? repsResponse : FALLBACK_REPS
         setDemCandidates(dems)
         setRepCandidates(reps)
-        setMatchups(buildMatchups(dems, reps, randomness))
+        setMatchups(buildStableMatchups(dems, reps, randomness))
         if (!demsResponse.length || !repsResponse.length) {
           setStartupNotice('Live market data is temporarily unavailable, so you are viewing fallback candidates.')
         } else {
@@ -950,7 +1001,7 @@ export default function App() {
       } catch (err) {
         setDemCandidates(FALLBACK_DEMS)
         setRepCandidates(FALLBACK_REPS)
-        setMatchups(buildMatchups(FALLBACK_DEMS, FALLBACK_REPS, randomness))
+        setMatchups(buildStableMatchups(FALLBACK_DEMS, FALLBACK_REPS, randomness))
         setStartupNotice('Could not reach live market data. Showing fallback candidates so the page still works.')
         setError(null)
       } finally {
@@ -962,7 +1013,7 @@ export default function App() {
 
   useEffect(() => {
     if (!demCandidates.length || !repCandidates.length) return
-    setMatchups(buildMatchups(demCandidates, repCandidates, randomness))
+    setMatchups(buildStableMatchups(demCandidates, repCandidates, randomness))
     setIdx(0)
   }, [demCandidates, repCandidates, randomness])
 
