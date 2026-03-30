@@ -5,6 +5,7 @@ const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
 const VOTER_ID_STORAGE_KEY = 'voterId'
 const SESSION_VOTES_STORAGE_KEY = 'sessionVotes'
+const VOTE_CONFIRMATION_MS = 500
 
 function getOrCreateVoterId() {
   const existing = window.localStorage.getItem(VOTER_ID_STORAGE_KEY)
@@ -332,7 +333,17 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showProjectHelp, setShowProjectHelp] = useState(false)
   const [voterId] = useState(() => getOrCreateVoterId())
+  const [voteAdvancePending, setVoteAdvancePending] = useState(false)
   const requestedPhotosRef = useRef(new Set())
+  const voteAdvanceTimerRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (voteAdvanceTimerRef.current) {
+        window.clearTimeout(voteAdvanceTimerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!voteFx.side) return
@@ -363,6 +374,7 @@ export default function App() {
   }, [voterId])
 
   const vote = useCallback(async (side) => {
+    if (voteAdvancePending) return
     const currentMatchup = matchups[idx]
     if (!currentMatchup) return
     const key = `${currentMatchup.dem.id}-${currentMatchup.rep.id}`
@@ -402,13 +414,21 @@ export default function App() {
         saveSessionVotes(nextVotes)
         return nextVotes
       })
-      setIdx(i => Math.min(matchups.length - 1, i + 1))
+      setVoteAdvancePending(true)
+      if (voteAdvanceTimerRef.current) {
+        window.clearTimeout(voteAdvanceTimerRef.current)
+      }
+      voteAdvanceTimerRef.current = window.setTimeout(() => {
+        setIdx(i => Math.min(matchups.length - 1, i + 1))
+        setVoteAdvancePending(false)
+        voteAdvanceTimerRef.current = null
+      }, VOTE_CONFIRMATION_MS)
     } catch (err) {
       setPollError(err.message)
     } finally {
       setPollLoading(false)
     }
-  }, [idx, matchups, voterId])
+  }, [idx, matchups, voteAdvancePending, voterId])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -720,7 +740,7 @@ export default function App() {
           party="dem"
           animKey={`dem-${idx}`}
           onVote={() => { vote('dem') }}
-          canVote={!pollLoading}
+          canVote={!pollLoading && !voteAdvancePending}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
         />
 
@@ -780,7 +800,7 @@ export default function App() {
           party="rep"
           animKey={`rep-${idx}`}
           onVote={() => { vote('rep') }}
-          canVote={!pollLoading}
+          canVote={!pollLoading && !voteAdvancePending}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
         />
       </main>
