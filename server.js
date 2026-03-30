@@ -221,10 +221,11 @@ app.post('/api/insights', async (req, res) => {
     recommendationFeedback
       ? `Recommendation engagement feedback (JSON): ${JSON.stringify(recommendationFeedback)}`
       : null,
+    'When writing summary_text, include at least one real-world political factor beyond app voting data (for example public profile, governing record, coalition fit, media narrative, or current national issues).',
+    'Do not invent precise facts. If uncertain, use cautious phrasing.',
     'Return JSON with exactly these fields:',
     'bias_signals: array of 2-4 short bullet-like strings about noticeable patterns.',
     'surprising_votes: array of 1-3 specific unusual picks.',
-    'suggested_matchups: array of 3 contrasting matchup ideas as short strings.',
     'confidence_notes: array of 1-2 caveats about uncertainty/sample size.',
     'Also include summary_text: one short paragraph (max 120 words) for quick reading.',
   ].join('\n')
@@ -278,7 +279,6 @@ app.post('/api/insights', async (req, res) => {
     const structured = {
       bias_signals: Array.isArray(parsed?.bias_signals) ? parsed.bias_signals : [],
       surprising_votes: Array.isArray(parsed?.surprising_votes) ? parsed.surprising_votes : [],
-      suggested_matchups: Array.isArray(parsed?.suggested_matchups) ? parsed.suggested_matchups : [],
       confidence_notes: Array.isArray(parsed?.confidence_notes) ? parsed.confidence_notes : [],
     }
 
