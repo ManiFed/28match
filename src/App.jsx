@@ -3,26 +3,14 @@ import './App.css'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
-const SESSION_VOTES_KEY = 'matchup-session-votes-v1'
+const VOTER_ID_STORAGE_KEY = 'voterId'
 
-function loadSessionVotes() {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = window.sessionStorage.getItem(SESSION_VOTES_KEY)
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function saveSessionVotes(votes) {
-  if (typeof window === 'undefined') return
-  try {
-    window.sessionStorage.setItem(SESSION_VOTES_KEY, JSON.stringify(votes))
-  } catch {
-    // Ignore session storage errors.
-  }
+function getOrCreateVoterId() {
+  const existing = window.localStorage.getItem(VOTER_ID_STORAGE_KEY)
+  if (existing) return existing
+  const created = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  window.localStorage.setItem(VOTER_ID_STORAGE_KEY, created)
+  return created
 }
 
 async function fetchCandidates(slug, partyLabel) {
@@ -271,13 +259,18 @@ export default function App() {
   const [insightsError, setInsightsError] = useState(null)
   const [insightsSummary, setInsightsSummary] = useState('')
   const [voteFx, setVoteFx] = useState({ side: null, tick: 0 })
+  const [voterId] = useState(() => getOrCreateVoterId())
 
   const fetchPoll = useCallback(async (matchup) => {
     const key = `${matchup.dem.id}-${matchup.rep.id}`
     setPollLoading(true)
     setPollError(null)
     try {
-      const res = await fetch(`/api/poll/${encodeURIComponent(key)}`)
+      const res = await fetch(`/api/poll/${encodeURIComponent(key)}`, {
+        headers: {
+          'x-voter-id': voterId,
+        },
+      })
       if (!res.ok) throw new Error(`Poll API returned ${res.status}`)
       const data = await res.json()
       setPollData(data)
@@ -286,7 +279,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [])
+  }, [voterId])
 
   const vote = useCallback(async (side) => {
     const currentMatchup = matchups[idx]
@@ -302,6 +295,7 @@ export default function App() {
         body: JSON.stringify({
           key,
           side,
+          voterId,
           dem: { id: currentMatchup.dem.id, name: currentMatchup.dem.name },
           rep: { id: currentMatchup.rep.id, name: currentMatchup.rep.name },
         }),
@@ -332,7 +326,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [idx, matchups])
+  }, [idx, matchups, voterId])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -415,18 +409,12 @@ export default function App() {
 
   const current = matchups[idx]
   const currentKey = current ? `${current.dem.id}-${current.rep.id}` : null
-  const hasVotedCurrent = !!(currentKey && votedKeys[currentKey])
+  const hasVotedCurrent = !!(currentKey && pollData?.hasVoted)
 
   useEffect(() => {
     if (!current) return
-    if (!hasVotedCurrent) {
-      setPollData(null)
-      setPollError(null)
-      setPollLoading(false)
-      return
-    }
     fetchPoll(current)
-  }, [current, hasVotedCurrent, fetchPoll])
+  }, [current, fetchPoll])
 
   useEffect(() => {
     if (!showLeaderboard) return
@@ -527,8 +515,8 @@ export default function App() {
           photo={photos[current.dem.name]}
           party="dem"
           animKey={`dem-${idx}`}
-          onVote={() => { if (!hasVoted) vote('dem') }}
-          canVote={!hasVoted && !pollLoading}
+          onVote={() => { vote('dem') }}
+          canVote={!pollLoading}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
         />
 
@@ -587,8 +575,8 @@ export default function App() {
           photo={photos[current.rep.name]}
           party="rep"
           animKey={`rep-${idx}`}
-          onVote={() => { if (!hasVoted) vote('rep') }}
-          canVote={!hasVoted && !pollLoading}
+          onVote={() => { vote('rep') }}
+          canVote={!pollLoading}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
         />
       </main>
