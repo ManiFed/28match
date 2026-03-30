@@ -9,6 +9,7 @@ const VOTE_CONFIRMATION_MS = 500
 const SWIPE_THRESHOLD_PX = 52
 const BADGE_MILESTONES = [5, 15, 30]
 const REQUEST_TIMEOUT_MS = 12000
+const INITIAL_RANDOMNESS = 0.2
 const APP_BOOT_TIMEOUT_MS = 15000
 const FALLBACK_DEMS = [
   { id: 'fallback-dem-1', name: 'Gavin Newsom', prob: 0.23 },
@@ -366,9 +367,8 @@ function ErrorScreen({ message }) {
 }
 
 export default function App() {
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [matchups, setMatchups] = useState([])
+  const [matchups, setMatchups] = useState(() => buildMatchups(FALLBACK_DEMS, FALLBACK_REPS, INITIAL_RANDOMNESS))
   const [photos, setPhotos] = useState({})
   const [idx, setIdx] = useState(0)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
@@ -395,9 +395,9 @@ export default function App() {
   const [recommendedMatchups, setRecommendedMatchups] = useState([])
   const [activeRecommendationType, setActiveRecommendationType] = useState(null)
   const [voteFx, setVoteFx] = useState({ side: null, tick: 0 })
-  const [demCandidates, setDemCandidates] = useState([])
-  const [repCandidates, setRepCandidates] = useState([])
-  const [randomness, setRandomness] = useState(0.2)
+  const [demCandidates, setDemCandidates] = useState(FALLBACK_DEMS)
+  const [repCandidates, setRepCandidates] = useState(FALLBACK_REPS)
+  const [randomness, setRandomness] = useState(INITIAL_RANDOMNESS)
   const [showSettings, setShowSettings] = useState(false)
   const [showProjectHelp, setShowProjectHelp] = useState(false)
   const [voteAdvancePending, setVoteAdvancePending] = useState(false)
