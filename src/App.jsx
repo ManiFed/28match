@@ -149,17 +149,18 @@ function fallbackAvatarUrl(name) {
   return `https://api.dicebear.com/9.x/initials/svg?${params.toString()}`
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   return (
     <button
-      className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'}`}
+      className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''}`}
       onClick={onVote}
       type="button"
       disabled={!canVote}
     >
       <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
+      <div className="vote-sparkle" aria-hidden="true" />
       <div className="photo-wrapper" key={animKey}>
         <img src={imageUrl} alt={candidate.name} className="candidate-photo" />
       </div>
@@ -213,6 +214,7 @@ export default function App() {
   const [pollLoading, setPollLoading] = useState(false)
   const [pollError, setPollError] = useState(null)
   const [votedKeys, setVotedKeys] = useState({})
+  const [voteFx, setVoteFx] = useState({ side: null, tick: 0 })
 
   const fetchPoll = useCallback(async (matchup) => {
     const key = `${matchup.dem.id}-${matchup.rep.id}`
@@ -250,6 +252,7 @@ export default function App() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Poll vote failed (${res.status})`)
+      setVoteFx({ side, tick: Date.now() })
       setPollData(data)
       setVotedKeys(prev => ({ ...prev, [key]: true }))
     } catch (err) {
@@ -411,6 +414,7 @@ export default function App() {
           animKey={`dem-${idx}`}
           onVote={() => { if (!hasVoted) vote('dem') }}
           canVote={!hasVoted && !pollLoading}
+          flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
         />
 
         <div className="vs-column">
@@ -470,6 +474,7 @@ export default function App() {
           animKey={`rep-${idx}`}
           onVote={() => { if (!hasVoted) vote('rep') }}
           canVote={!hasVoted && !pollLoading}
+          flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
         />
       </main>
     </div>
