@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './App.css'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
@@ -253,6 +253,22 @@ function hasSessionVoteForKey(votes, key) {
   return votes.some(vote => vote?.key === key)
 }
 
+function findNextUnvotedIndex(matchups, votedKeys, startIndex = 0, direction = 1) {
+  if (!matchups.length) return -1
+  const step = direction >= 0 ? 1 : -1
+  const normalizedStart = ((startIndex % matchups.length) + matchups.length) % matchups.length
+
+  for (let offset = 0; offset < matchups.length; offset += 1) {
+    const idx = (normalizedStart + (offset * step) + matchups.length) % matchups.length
+    const matchup = matchups[idx]
+    if (!matchup) continue
+    const key = `${matchup.dem.id}-${matchup.rep.id}`
+    if (!votedKeys.has(key)) return idx
+  }
+
+  return -1
+}
+
 function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
@@ -359,6 +375,7 @@ export default function App() {
   const [badgeMessage, setBadgeMessage] = useState('')
   const [badgeFxTick, setBadgeFxTick] = useState(0)
   const [modeShiftFx, setModeShiftFx] = useState(false)
+  const [showLegendPopup, setShowLegendPopup] = useState(false)
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
   const lastVotedSideRef = useRef(null)
@@ -405,8 +422,10 @@ export default function App() {
     const currentMatchup = matchups[idx]
     if (!currentMatchup) return
     const key = `${currentMatchup.dem.id}-${currentMatchup.rep.id}`
-    if (hasSessionVoteForKey(sessionVotes, key)) {
-      setLiveMessage('You already voted on this matchup.')
+    if (votedKeys.has(key)) {
+      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, idx + 1, 1)
+      if (nextIdx !== -1) setIdx(nextIdx)
+      setLiveMessage(nextIdx === -1 ? "You've already voted on every matchup." : 'Skipping a matchup you already voted on.')
       return
     }
 
@@ -479,7 +498,10 @@ export default function App() {
         window.clearTimeout(voteAdvanceTimerRef.current)
       }
       voteAdvanceTimerRef.current = window.setTimeout(() => {
-        setIdx(i => Math.min(matchups.length - 1, i + 1))
+        setIdx(i => {
+          const nextIdx = findNextUnvotedIndex(matchups, new Set([...votedKeys, key]), i + 1, 1)
+          return nextIdx === -1 ? i : nextIdx
+        })
         setVoteAdvancePending(false)
         voteAdvanceTimerRef.current = null
       }, VOTE_CONFIRMATION_MS)
@@ -488,7 +510,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [activeRecommendationType, idx, matchups, sessionVotes, voteAdvancePending])
+  }, [activeRecommendationType, idx, matchups, voteAdvancePending, votedKeys])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -652,10 +674,22 @@ export default function App() {
       })
   }, [idx, matchups, photos])
 
+  const votedKeys = useMemo(() => new Set(sessionVotes.map(vote => vote.key)), [sessionVotes])
+  const allMatchupsCompleted = matchups.length > 0 && votedKeys.size >= matchups.length
+
   const prev = useCallback(() => {
-    setIdx(i => (i === 0 ? Math.max(0, matchups.length - 1) : i - 1))
-  }, [matchups.length])
-  const next = useCallback(() => setIdx(i => Math.min(matchups.length - 1, i + 1)), [matchups.length])
+    setIdx(i => {
+      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, i - 1, -1)
+      return nextIdx === -1 ? i : nextIdx
+    })
+  }, [matchups, votedKeys])
+
+  const next = useCallback(() => {
+    setIdx(i => {
+      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, i + 1, 1)
+      return nextIdx === -1 ? i : nextIdx
+    })
+  }, [matchups, votedKeys])
 
   const queueRecommendedMatchup = useCallback((recommended) => {
     const targetKey = `${recommended.dem.id}-${recommended.rep.id}`
@@ -705,7 +739,7 @@ export default function App() {
 
   const current = matchups[idx]
   const currentMatchupKey = current ? `${current.dem.id}-${current.rep.id}` : null
-  const alreadyVotedCurrent = currentMatchupKey ? hasSessionVoteForKey(sessionVotes, currentMatchupKey) : false
+  const alreadyVotedCurrent = currentMatchupKey ? votedKeys.has(currentMatchupKey) : false
 
   const handleArenaTouchStart = useCallback((event) => {
     const touch = event.changedTouches[0]
@@ -739,6 +773,20 @@ export default function App() {
     if (!showInsights) return
     setRecommendedMatchups(buildContrastingRecommendations())
   }, [buildContrastingRecommendations, sessionVotes.length, showInsights])
+
+  useEffect(() => {
+    if (!matchups.length) return
+    if (allMatchupsCompleted) {
+      setShowLegendPopup(true)
+      return
+    }
+
+    const nextIdx = findNextUnvotedIndex(matchups, votedKeys, idx, 1)
+    if (nextIdx !== -1 && nextIdx !== idx) {
+      setIdx(nextIdx)
+      setLiveMessage('Skipping a matchup you already voted on.')
+    }
+  }, [allMatchupsCompleted, idx, matchups, votedKeys])
 
   if (loading) return <LoadingScreen />
   if (error) return <ErrorScreen message={error} />
@@ -1071,9 +1119,28 @@ export default function App() {
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
         />
       </main>
-      {alreadyVotedCurrent && (
-        <div className="vote-lock-msg" role="status" aria-live="polite">
-          You already voted on this matchup in this browser.
+      {showLegendPopup && allMatchupsCompleted && (
+        <div className="legend-modal-backdrop" onClick={() => setShowLegendPopup(false)}>
+          <section
+            className="legend-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="All matchups completed"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="legend-emoji" aria-hidden="true">🎉</div>
+            <h2>you're a legend!</h2>
+            <p>You voted on all {total} matchups in this browser session.</p>
+            <div className="legend-stats">
+              <div><span>Total votes</span><strong>{totalSessionVotes}</strong></div>
+              <div><span>Dem votes</span><strong>{sessionVoteTotals.dem}</strong></div>
+              <div><span>Rep votes</span><strong>{sessionVoteTotals.rep}</strong></div>
+              <div><span>Underdog picks</span><strong>{sessionVoteTotals.underdog}</strong></div>
+            </div>
+            <button type="button" className="header-btn" onClick={() => setShowLegendPopup(false)}>
+              Keep browsing stats
+            </button>
+          </section>
         </div>
       )}
     </div>
