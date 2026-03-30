@@ -862,7 +862,7 @@ export default function App() {
   }, [buildContrastingRecommendations, sessionVotes.length, showInsights])
 
   useEffect(() => {
-    if (!matchups.length) return
+    if (!matchups.length || voteAdvancePending) return
     if (allMatchupsCompleted) {
       setShowLegendPopup(true)
       return
@@ -871,7 +871,7 @@ export default function App() {
     if (activeIdx !== -1 && activeIdx !== idx) {
       setIdx(activeIdx)
     }
-  }, [activeIdx, allMatchupsCompleted, idx, matchups.length])
+  }, [activeIdx, allMatchupsCompleted, idx, matchups.length, voteAdvancePending])
 
   if (loading) return <LoadingScreen timedOut={bootTimedOut} />
   if (error) return <ErrorScreen message={error} />
