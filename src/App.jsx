@@ -3,17 +3,8 @@ import './App.css'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
-const VOTER_ID_STORAGE_KEY = 'voterId'
 const SESSION_VOTES_STORAGE_KEY = 'sessionVotes'
 const VOTE_CONFIRMATION_MS = 500
-
-function getOrCreateVoterId() {
-  const existing = window.localStorage.getItem(VOTER_ID_STORAGE_KEY)
-  if (existing) return existing
-  const created = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  window.localStorage.setItem(VOTER_ID_STORAGE_KEY, created)
-  return created
-}
 
 function loadSessionVotes() {
   try {
@@ -290,7 +281,6 @@ export default function App() {
   const [pollData, setPollData] = useState(null)
   const [pollLoading, setPollLoading] = useState(false)
   const [pollError, setPollError] = useState(null)
-  const [votedKeys, setVotedKeys] = useState({})
   const [sessionVotes, setSessionVotes] = useState(() => loadSessionVotes())
   const [showInsights, setShowInsights] = useState(false)
   const [insightsLoading, setInsightsLoading] = useState(false)
@@ -302,7 +292,6 @@ export default function App() {
   const [randomness, setRandomness] = useState(0.2)
   const [showSettings, setShowSettings] = useState(false)
   const [showProjectHelp, setShowProjectHelp] = useState(false)
-  const [voterId] = useState(() => getOrCreateVoterId())
   const [voteAdvancePending, setVoteAdvancePending] = useState(false)
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
@@ -328,11 +317,7 @@ export default function App() {
     setPollLoading(true)
     setPollError(null)
     try {
-      const res = await fetch(`/api/poll/${encodeURIComponent(key)}`, {
-        headers: {
-          'x-voter-id': voterId,
-        },
-      })
+      const res = await fetch(`/api/poll/${encodeURIComponent(key)}`)
       if (!res.ok) throw new Error(`Poll API returned ${res.status}`)
       const data = await res.json()
       setPollData(data)
@@ -341,7 +326,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [voterId])
+  }, [])
 
   const vote = useCallback(async (side) => {
     if (voteAdvancePending) return
@@ -358,7 +343,6 @@ export default function App() {
         body: JSON.stringify({
           key,
           side,
-          voterId,
           dem: { id: currentMatchup.dem.id, name: currentMatchup.dem.name },
           rep: { id: currentMatchup.rep.id, name: currentMatchup.rep.name },
         }),
@@ -367,7 +351,6 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || `Poll vote failed (${res.status})`)
       setVoteFx({ side, tick: Date.now() })
       setPollData(data)
-      setVotedKeys(prev => ({ ...prev, [key]: true }))
       setSessionVotes(prev => {
         const nextVotes = [
           ...prev,
@@ -398,7 +381,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [idx, matchups, voteAdvancePending, voterId])
+  }, [idx, matchups, voteAdvancePending])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
