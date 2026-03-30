@@ -27,6 +27,24 @@ const FALLBACK_REPS = [
   { id: 'fallback-rep-2', name: 'Ron DeSantis', prob: 0.22 },
   { id: 'fallback-rep-3', name: 'Nikki Haley', prob: 0.13 },
 ]
+const POSITION_KEYWORD_RULES = [
+  { pattern: /\b(bernie sanders|sanders|aoc|alexandria ocasio-cortez|ocasio-cortez)\b/, tags: ['medicare-for-all', 'wealth-tax', 'pro-labor', 'green-new-deal', 'pro-choice'] },
+  { pattern: /\b(elizabeth warren|warren)\b/, tags: ['wealth-tax', 'anti-monopoly', 'pro-choice', 'student-debt-relief'] },
+  { pattern: /\b(kamala harris|harris)\b/, tags: ['abortion-rights', 'gun-safety', 'pathway-to-citizenship', 'climate-regulation'] },
+  { pattern: /\b(gavin newsom|newsom)\b/, tags: ['gun-safety', 'climate-regulation', 'abortion-rights', 'pro-lgbtq-rights'] },
+  { pattern: /\b(gretchen whitmer|whitmer)\b/, tags: ['abortion-rights', 'labor-friendly', 'infrastructure-first'] },
+  { pattern: /\b(cory booker|booker)\b/, tags: ['criminal-justice-reform', 'gun-safety', 'pathway-to-citizenship'] },
+  { pattern: /\b(amy klobuchar|klobuchar)\b/, tags: ['centrist-dealmaker', 'infrastructure-first', 'public-option'] },
+  { pattern: /\b(joe biden|biden)\b/, tags: ['nato-forward', 'industrial-policy', 'public-option'] },
+  { pattern: /\b(donald trump|trump)\b/, tags: ['america-first-trade', 'border-enforcement', 'tariff-forward', 'restrict-abortion', 'deregulation'] },
+  { pattern: /\b(ron desantis|desantis)\b/, tags: ['culture-war-focus', 'restrict-abortion', 'border-enforcement', 'anti-dei'] },
+  { pattern: /\b(nikki haley|haley)\b/, tags: ['hawkish-foreign-policy', 'tax-cuts', 'border-enforcement', 'pro-business'] },
+  { pattern: /\b(jd vance|vance)\b/, tags: ['economic-nationalism', 'border-enforcement', 'america-first-trade'] },
+  { pattern: /\b(marco rubio|rubio)\b/, tags: ['hawkish-foreign-policy', 'tax-cuts', 'pro-family-policy'] },
+  { pattern: /\b(glenn youngkin|youngkin)\b/, tags: ['tax-cuts', 'education-parental-rights', 'pro-business'] },
+  { pattern: /\b(vivek ramaswamy|ramaswamy|vivek)\b/, tags: ['anti-regulation', 'anti-dei', 'america-first-trade'] },
+  { pattern: /\b(tulsi gabbard|gabbard)\b/, tags: ['anti-intervention', 'civil-libertarian', 'anti-establishment'] },
+]
 
 async function fetchJsonWithTimeout(url, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController()
@@ -329,7 +347,7 @@ function getVoteProfile(votes) {
     return {
       preferredSide: 'dem',
       preferredTrait: 'underdog',
-      topTags: ['frontrunner-friendly', 'outsider-curious'],
+      topTags: ['mixed-ideology', 'cross-pressured-voter'],
     }
   }
   const counts = votes.reduce((acc, vote) => {
@@ -349,7 +367,11 @@ function getVoteProfile(votes) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4)
     .map(([tag]) => tag)
-  return { preferredSide, preferredTrait, topTags }
+  return {
+    preferredSide,
+    preferredTrait,
+    topTags: topTags.length ? topTags : ['mixed-ideology'],
+  }
 }
 
 function updatePredictionModel(model, { predictedSide, actualSide, pickedTags = [], missedTags = [], trait }) {
@@ -397,18 +419,33 @@ function getCandidateTags(candidate, side, allCandidates = []) {
   const topBand = Math.max(2, Math.ceil(allCandidates.length * 0.2))
   const longshotBand = Math.max(2, Math.ceil(allCandidates.length * 0.65))
   const tags = new Set([
-    side === 'dem' ? 'left-lane' : 'right-lane',
-    side === 'dem' ? 'blue-lane' : 'red-lane',
+    side === 'dem' ? 'center-left-coalition' : 'center-right-coalition',
     rank <= topBand ? 'frontrunner' : 'outsider',
     candidate.prob >= 0.2 ? 'high-odds' : 'low-odds',
     rank >= longshotBand ? 'longshot' : 'viable',
   ])
 
+  POSITION_KEYWORD_RULES.forEach((rule) => {
+    if (rule.pattern.test(normalized)) {
+      rule.tags.forEach(tag => tags.add(tag))
+    }
+  })
+
+  if (side === 'dem') {
+    tags.add('supports-climate-action')
+    tags.add('supports-abortion-rights')
+    tags.add('supports-expanded-safety-net')
+  } else {
+    tags.add('supports-tax-cuts')
+    tags.add('supports-strong-border-enforcement')
+    tags.add('supports-deregulation')
+  }
+
   if (/\b(governor|newsom|whitmer|desantis|haley|abbott)\b/.test(normalized)) tags.add('governor-track')
   if (/\b(senator|rubio|vance|warren|booker|klobuchar)\b/.test(normalized)) tags.add('senate-track')
   if (/\b(trump|biden|harris)\b/.test(normalized)) tags.add('national-brand')
-  if (/\b(ocasio-cortez|aoc|sanders)\b/.test(normalized)) tags.add('movement-left')
-  if (/\b(desantis|vance|vivek|hawley)\b/.test(normalized)) tags.add('movement-right')
+  if (/\b(ocasio-cortez|aoc|sanders|warren)\b/.test(normalized)) tags.add('progressive-left')
+  if (/\b(desantis|vance|vivek|hawley|trump)\b/.test(normalized)) tags.add('populist-right')
   if (/\b(newsom|haley|youngkin)\b/.test(normalized)) tags.add('establishment')
   if (/\b(gabbard|kennedy|ramaswamy)\b/.test(normalized)) tags.add('anti-establishment')
 
@@ -1546,7 +1583,7 @@ export default function App() {
               </div>
             </div>
             <div className="stats-tags">
-              <span className="stats-tags-label">Your classes/tags</span>
+              <span className="stats-tags-label">Your position tags</span>
               <div className="stats-tag-list">
                 {(voteProfile.topTags.length ? voteProfile.topTags : ['new-user']).map(tag => (
                   <span key={tag} className="stats-tag-chip">{tag.replace(/-/g, ' ')}</span>
