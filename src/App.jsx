@@ -249,6 +249,10 @@ function getWikiUrl(name) {
   return `https://en.wikipedia.org/wiki/${encodeURIComponent(name.replace(/\s+/g, '_'))}`
 }
 
+function hasSessionVoteForKey(votes, key) {
+  return votes.some(vote => vote?.key === key)
+}
+
 function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
@@ -401,6 +405,10 @@ export default function App() {
     const currentMatchup = matchups[idx]
     if (!currentMatchup) return
     const key = `${currentMatchup.dem.id}-${currentMatchup.rep.id}`
+    if (hasSessionVoteForKey(sessionVotes, key)) {
+      setLiveMessage('You already voted on this matchup.')
+      return
+    }
 
     setPollLoading(true)
     setPollError(null)
@@ -480,7 +488,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [activeRecommendationType, idx, matchups, voteAdvancePending])
+  }, [activeRecommendationType, idx, matchups, sessionVotes, voteAdvancePending])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -692,6 +700,8 @@ export default function App() {
   }, [vote, next])
 
   const current = matchups[idx]
+  const currentMatchupKey = current ? `${current.dem.id}-${current.rep.id}` : null
+  const alreadyVotedCurrent = currentMatchupKey ? hasSessionVoteForKey(sessionVotes, currentMatchupKey) : false
 
   const handleArenaTouchStart = useCallback((event) => {
     const touch = event.changedTouches[0]
@@ -989,7 +999,7 @@ export default function App() {
           party="dem"
           animKey={`dem-${idx}`}
           onVote={() => { vote('dem') }}
-          canVote={!pollLoading && !voteAdvancePending}
+          canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
         />
 
@@ -1053,10 +1063,15 @@ export default function App() {
           party="rep"
           animKey={`rep-${idx}`}
           onVote={() => { vote('rep') }}
-          canVote={!pollLoading && !voteAdvancePending}
+          canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
         />
       </main>
+      {alreadyVotedCurrent && (
+        <div className="vote-lock-msg" role="status" aria-live="polite">
+          You already voted on this matchup in this browser.
+        </div>
+      )}
     </div>
   )
 }
