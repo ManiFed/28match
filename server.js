@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000
 const dbConfig = process.env.DATABASE_URL
   ? {
       connectionString: process.env.DATABASE_URL,
-      ssl: process.env.PGSSLMODE === 'disable' ? false : undefined,
+      ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
     }
   : {
       host: process.env.PGHOST || '127.0.0.1',
@@ -309,13 +309,9 @@ app.get('*', (_req, res) => {
   res.sendFile(join(__dirname, 'dist', 'index.html'))
 })
 
-initDb()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`)
-    })
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`)
+  initDb().catch((error) => {
+    console.error('Database initialization failed (API routes will not work):', error.message)
   })
-  .catch((error) => {
-    console.error('Failed to initialize database:', error)
-    process.exit(1)
-  })
+})
