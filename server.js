@@ -2,69 +2,65 @@ import express from 'express'
 import { createProxyMiddleware } from 'http-proxy-middleware'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
-import { randomUUID } from 'crypto'
+import pg from 'pg'
+
+const { Pool } = pg
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3000
-const candidateVoteTotals = new Map()
-const matchupVotes = new Map()
-const matchupMeta = new Map()
-const VOTER_COOKIE = 'voter_id'
+
+const dbConfig = process.env.DATABASE_URL
+  ? {
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.PGSSLMODE === 'disable' ? false : undefined,
+    }
+  : {
+      host: process.env.PGHOST || '127.0.0.1',
+      port: Number(process.env.PGPORT || 5432),
+      database: process.env.PGDATABASE || 'postgres',
+      user: process.env.PGUSER || 'postgres',
+      password: process.env.PGPASSWORD || '',
+    }
+
+const pool = new Pool(dbConfig)
 
 app.use(express.json())
 
-function parseCookies(req) {
-  const cookieHeader = req.headers.cookie
-  if (!cookieHeader) return {}
-
-  return cookieHeader
-    .split(';')
-    .map(part => part.trim())
-    .filter(Boolean)
-    .reduce((cookies, part) => {
-      const separator = part.indexOf('=')
-      if (separator === -1) return cookies
-
-      const key = decodeURIComponent(part.slice(0, separator).trim())
-      const value = decodeURIComponent(part.slice(separator + 1).trim())
-      cookies[key] = value
-      return cookies
-    }, {})
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS matchup_vote_totals (
+      key TEXT PRIMARY KEY,
+      dem_candidate_id TEXT NOT NULL,
+      dem_candidate_name TEXT NOT NULL,
+      rep_candidate_id TEXT NOT NULL,
+      rep_candidate_name TEXT NOT NULL,
+      dem_votes INTEGER NOT NULL DEFAULT 0,
+      rep_votes INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
 }
 
-function getVoterId(req, res) {
-  const cookies = parseCookies(req)
-  const existing = cookies[VOTER_COOKIE]
-  if (existing) return existing
-
-  const voterId = randomUUID()
-  const oneYearSeconds = 60 * 60 * 24 * 365
-  res.setHeader(
-    'Set-Cookie',
-    `${VOTER_COOKIE}=${encodeURIComponent(voterId)}; Max-Age=${oneYearSeconds}; Path=/; HttpOnly; SameSite=Lax`
+async function getPollSummary(key) {
+  const result = await pool.query(
+    `SELECT key, dem_votes, rep_votes
+     FROM matchup_vote_totals
+     WHERE key = $1`,
+    [key]
   )
-  return voterId
-}
 
-function getPollSummary(key, voterId) {
-  const votes = matchupVotes.get(key) || new Map()
-  let demVotes = 0
-  let repVotes = 0
+  const row = result.rows[0]
+  const demVotes = row ? Number(row.dem_votes) : 0
+  const repVotes = row ? Number(row.rep_votes) : 0
 
-  for (const side of votes.values()) {
-    if (side === 'dem') demVotes += 1
-    if (side === 'rep') repVotes += 1
-  }
-
-  const userVote = votes.get(voterId) || null
   return {
     key,
     demVotes,
     repVotes,
     totalVotes: demVotes + repVotes,
-    hasVoted: userVote !== null,
-    userVote,
+    hasVoted: false,
+    userVote: null,
   }
 }
 
@@ -98,41 +94,53 @@ function getVoterVoteHistory(voterId) {
       chosenCandidate: side === 'dem' ? meta.dem.name : meta.rep.name,
       opposingCandidate: side === 'dem' ? meta.rep.name : meta.dem.name,
       matchup: `${meta.dem.name} vs ${meta.rep.name}`,
+app.get('/api/poll/leaderboard', async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT candidate_id AS id, candidate_name AS name, party, SUM(votes)::INT AS votes
+      FROM (
+        SELECT dem_candidate_id AS candidate_id,
+               dem_candidate_name AS candidate_name,
+               'dem'::TEXT AS party,
+               dem_votes AS votes
+        FROM matchup_vote_totals
+        UNION ALL
+        SELECT rep_candidate_id AS candidate_id,
+               rep_candidate_name AS candidate_name,
+               'rep'::TEXT AS party,
+               rep_votes AS votes
+        FROM matchup_vote_totals
+      ) candidate_totals
+      GROUP BY candidate_id, candidate_name, party
+      ORDER BY votes DESC, name ASC
+    `)
+
+    const leaderboard = result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      party: row.party,
+      votes: Number(row.votes),
+    }))
+
+    res.json({
+      totalVotes: leaderboard.reduce((sum, entry) => sum + entry.votes, 0),
+      leaderboard,
     })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load leaderboard.' })
   }
-
-  return history
-}
-
-function buildInsightsPrompt(history) {
-  const demVotes = history.filter(v => v.side === 'dem').length
-  const repVotes = history.filter(v => v.side === 'rep').length
-
-  const voteLines = history
-    .slice(0, 50)
-    .map(v => `- Picked ${v.chosenCandidate} over ${v.opposingCandidate}`)
-    .join('\n')
-
-  return `You are a neutral political analyst.\n\nBased only on these matchup choices, write a concise 4-6 sentence summary of the user's political preferences.\n\nTotal democratic picks: ${demVotes}\nTotal republican picks: ${repVotes}\n\nVotes:\n${voteLines}\n\nRequirements:\n- Do not claim certainty; use phrases like \"suggests\" or \"may indicate\".\n- Mention ideological lean (if any), candidate-style preferences, and one caveat about limited data.\n- Keep it plain English and avoid partisan persuasion.`
-}
-
-app.get('/api/poll/leaderboard', (_req, res) => {
-  const leaderboard = [...candidateVoteTotals.values()]
-    .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
-
-  res.json({
-    totalVotes: leaderboard.reduce((sum, entry) => sum + entry.votes, 0),
-    leaderboard,
-  })
 })
 
-app.get('/api/poll/:key', (req, res) => {
-  const key = req.params.key
-  const voterId = getVoterId(req, res)
-  res.json(getPollSummary(key, voterId))
+app.get('/api/poll/:key', async (req, res) => {
+  try {
+    const key = req.params.key
+    res.json(await getPollSummary(key))
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load poll.' })
+  }
 })
 
-app.post('/api/poll/vote', (req, res) => {
+app.post('/api/poll/vote', async (req, res) => {
   const { key, side, dem, rep } = req.body || {}
   if (!key || (side !== 'dem' && side !== 'rep')) {
     return res.status(400).json({ error: 'Invalid vote payload.' })
@@ -184,40 +192,58 @@ app.post('/api/insights', async (req, res) => {
       error: 'OPENROUTER_API_KEY is not configured on the server.',
     })
   }
+  if (!dem?.id || !dem?.name || !rep?.id || !rep?.name) {
+    return res.status(400).json({ error: 'Both matchup candidates are required.' })
+  }
+
+  const incrementDem = side === 'dem' ? 1 : 0
+  const incrementRep = side === 'rep' ? 1 : 0
 
   try {
-    const prompt = buildInsightsPrompt(history)
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You analyze voting-preference signals carefully and neutrally.' },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.5,
-      }),
+    const result = await pool.query(
+      `INSERT INTO matchup_vote_totals (
+         key,
+         dem_candidate_id,
+         dem_candidate_name,
+         rep_candidate_id,
+         rep_candidate_name,
+         dem_votes,
+         rep_votes,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (key) DO UPDATE
+       SET dem_candidate_id = EXCLUDED.dem_candidate_id,
+           dem_candidate_name = EXCLUDED.dem_candidate_name,
+           rep_candidate_id = EXCLUDED.rep_candidate_id,
+           rep_candidate_name = EXCLUDED.rep_candidate_name,
+           dem_votes = matchup_vote_totals.dem_votes + EXCLUDED.dem_votes,
+           rep_votes = matchup_vote_totals.rep_votes + EXCLUDED.rep_votes,
+           updated_at = NOW()
+       RETURNING key, dem_votes, rep_votes`,
+      [key, dem.id, dem.name, rep.id, rep.name, incrementDem, incrementRep]
+    )
+
+    const row = result.rows[0]
+    const demVotes = Number(row.dem_votes)
+    const repVotes = Number(row.rep_votes)
+
+    res.json({
+      key: row.key,
+      demVotes,
+      repVotes,
+      totalVotes: demVotes + repVotes,
+      hasVoted: false,
+      userVote: null,
     })
-
-    const payload = await response.json()
-    if (!response.ok) {
-      const errMsg = payload?.error?.message || `OpenRouter error (${response.status})`
-      return res.status(502).json({ error: errMsg })
-    }
-
-    const summary = payload?.choices?.[0]?.message?.content?.trim()
-    if (!summary) {
-      return res.status(502).json({ error: 'OpenRouter returned an empty response.' })
-    }
-
-    res.json({ summary })
   } catch (error) {
-    res.status(500).json({ error: error.message || 'Failed to generate insights.' })
+    res.status(500).json({ error: error.message || 'Failed to record vote.' })
   }
+})
+
+app.post('/api/insights', async (_req, res) => {
+  res.status(501).json({
+    error: 'Insights are unavailable because individual vote histories are not stored.',
+  })
 })
 
 app.use(
@@ -235,6 +261,13 @@ app.get('*', (_req, res) => {
   res.sendFile(join(__dirname, 'dist', 'index.html'))
 })
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
-})
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`)
+    })
+  })
+  .catch((error) => {
+    console.error('Failed to initialize database:', error)
+    process.exit(1)
+  })
