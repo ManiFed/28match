@@ -67,6 +67,21 @@ function getPollSummary(key, voterId) {
   }
 }
 
+function applyCandidateVoteDelta(side, candidate, delta) {
+  if (!candidate?.id || !candidate?.name || !delta) return
+
+  const candidateKey = `${side}:${candidate.id}`
+  const existing = candidateVoteTotals.get(candidateKey) || {
+    id: candidate.id,
+    name: candidate.name,
+    party: side,
+    votes: 0,
+  }
+
+  existing.votes = Math.max(0, existing.votes + delta)
+  candidateVoteTotals.set(candidateKey, existing)
+}
+
 app.get('/api/poll/leaderboard', (_req, res) => {
   const leaderboard = [...candidateVoteTotals.values()]
     .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
@@ -91,29 +106,23 @@ app.post('/api/poll/vote', (req, res) => {
 
   const voterId = getVoterId(req, res)
   const votes = matchupVotes.get(key) || new Map()
+  const priorVote = votes.get(voterId)
 
-  if (votes.has(voterId)) {
-    return res.status(409).json({
-      error: 'You already voted on this matchup.',
-      ...getPollSummary(key, voterId),
-    })
+  if (priorVote === side) {
+    const poll = getPollSummary(key, voterId)
+    return res.json({ key, ...poll, totalVotes: poll.demVotes + poll.repVotes })
+  }
+
+  if (priorVote) {
+    const priorCandidate = priorVote === 'dem' ? dem : rep
+    applyCandidateVoteDelta(priorVote, priorCandidate, -1)
   }
 
   votes.set(voterId, side)
   matchupVotes.set(key, votes)
 
   const votedCandidate = side === 'dem' ? dem : rep
-  if (votedCandidate?.id && votedCandidate?.name) {
-    const candidateKey = `${side}:${votedCandidate.id}`
-    const existing = candidateVoteTotals.get(candidateKey) || {
-      id: votedCandidate.id,
-      name: votedCandidate.name,
-      party: side,
-      votes: 0,
-    }
-    existing.votes += 1
-    candidateVoteTotals.set(candidateKey, existing)
-  }
+  applyCandidateVoteDelta(side, votedCandidate, 1)
 
   const poll = getPollSummary(key, voterId)
   res.json({ key, ...poll, totalVotes: poll.demVotes + poll.repVotes })

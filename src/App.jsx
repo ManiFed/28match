@@ -149,12 +149,12 @@ function fallbackAvatarUrl(name) {
   return `https://api.dicebear.com/9.x/initials/svg?${params.toString()}`
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, isSelected }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   return (
     <button
-      className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'}`}
+      className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${isSelected ? 'panel-selected' : ''}`}
       onClick={onVote}
       type="button"
       disabled={!canVote}
@@ -310,11 +310,11 @@ export default function App() {
     const handler = (e) => {
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        if (!pollData?.hasVoted) vote('dem')
+        vote('dem')
       }
       if (e.key === 'ArrowRight') {
         e.preventDefault()
-        if (!pollData?.hasVoted) vote('rep')
+        vote('rep')
       }
       if (e.key === ' ') {
         e.preventDefault()
@@ -323,7 +323,7 @@ export default function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [vote, next, pollData?.hasVoted])
+  }, [vote, next])
 
   const current = matchups[idx]
   const currentKey = current ? `${current.dem.id}-${current.rep.id}` : null
@@ -351,6 +351,7 @@ export default function App() {
 
   const total = matchups.length
   const hasVoted = Boolean(pollData?.hasVoted)
+  const selectedSide = pollData?.userVote || null
   const demVotePct = pollData?.totalVotes ? (pollData.demVotes / pollData.totalVotes) * 100 : 0
   const repVotePct = pollData?.totalVotes ? (pollData.repVotes / pollData.totalVotes) * 100 : 0
 
@@ -409,8 +410,9 @@ export default function App() {
           photo={photos[current.dem.name]}
           party="dem"
           animKey={`dem-${idx}`}
-          onVote={() => { if (!hasVoted) vote('dem') }}
-          canVote={!hasVoted && !pollLoading}
+          onVote={() => vote('dem')}
+          canVote={!pollLoading}
+          isSelected={selectedSide === 'dem'}
         />
 
         <div className="vs-column">
@@ -468,8 +470,9 @@ export default function App() {
           photo={photos[current.rep.name]}
           party="rep"
           animKey={`rep-${idx}`}
-          onVote={() => { if (!hasVoted) vote('rep') }}
-          canVote={!hasVoted && !pollLoading}
+          onVote={() => vote('rep')}
+          canVote={!pollLoading}
+          isSelected={selectedSide === 'rep'}
         />
       </main>
     </div>
