@@ -426,10 +426,6 @@ export default function App() {
             <span className="cp-label">matchup probability</span>
           </div>
 
-          <div className="rank-badge">
-            #{idx + 1}
-          </div>
-
           <div className="nav-row">
             <button className="nav-btn" onClick={prev} disabled={total <= 1} aria-label="Previous">
               &#8249;
