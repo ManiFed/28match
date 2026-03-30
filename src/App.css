@@ -46,7 +46,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  min-width: 250px;
+  min-width: 320px;
 }
 
 .vote-split-row {
@@ -80,6 +80,44 @@
 .vote-segment-rep { background: #f24343; }
 .vote-segment-underdog { background: #fff; }
 .vote-segment-frontrunner { background: #000; }
+
+.stats-drawer {
+  flex-shrink: 0;
+  border-bottom: 1px solid #1e1e1e;
+  background: #0d0d0d;
+  padding: 10px 16px;
+}
+
+.stats-tags {
+  margin-top: 0.4rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.stats-tags-label {
+  font-size: 0.65rem;
+  color: #9a9a9a;
+  min-width: 112px;
+  text-align: right;
+}
+
+.stats-tag-list {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.stats-tag-chip {
+  border: 1px solid #3b3b3b;
+  background: #161616;
+  color: #d7d7d7;
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.64rem;
+  text-transform: capitalize;
+}
 
 .header-btn {
   border: 1px solid #3a3a3a;
@@ -519,23 +557,41 @@
   100% { opacity: 0; transform: scale(1.15); }
 }
 
-.candidate-panel.prediction-pulse {
-  animation: predictionPulse 1100ms ease-out;
+.prediction-photo-ring {
+  animation: predictionRingPulse 1.25s ease-in-out infinite;
 }
 
-@keyframes predictionPulse {
+.prediction-photo-pulse {
+  animation: predictionPhotoPulse 1.25s ease-in-out infinite;
+}
+
+@keyframes predictionRingPulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(245, 216, 106, 0.75);
-    transform: scale(1);
+    box-shadow:
+      0 0 0 0 rgba(245, 216, 106, 0.75),
+      0 8px 40px rgba(0, 0, 0, 0.6);
   }
-  50% {
+  60% {
     box-shadow:
       0 0 0 10px rgba(245, 216, 106, 0.22),
-      0 0 0 20px rgba(245, 216, 106, 0.12);
+      0 0 0 18px rgba(245, 216, 106, 0.12),
+      0 8px 40px rgba(0, 0, 0, 0.6);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(245, 216, 106, 0);
+    box-shadow:
+      0 0 0 0 rgba(245, 216, 106, 0),
+      0 8px 40px rgba(0, 0, 0, 0.6);
+  }
+}
+
+@keyframes predictionPhotoPulse {
+  0%, 100% {
     transform: scale(1);
+    filter: saturate(1);
+  }
+  50% {
+    transform: scale(1.04);
+    filter: saturate(1.12);
   }
 }
 
