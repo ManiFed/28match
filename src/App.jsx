@@ -12,6 +12,7 @@ const SWIPE_THRESHOLD_PX = 52
 const REQUEST_TIMEOUT_MS = 12000
 const INITIAL_RANDOMNESS = 0.2
 const APP_BOOT_TIMEOUT_MS = 15000
+const BADGE_MILESTONES = [5, 10, 25, 50]
 const FALLBACK_DEMS = [
   { id: 'fallback-dem-1', name: 'Gavin Newsom', prob: 0.23 },
   { id: 'fallback-dem-2', name: 'Gretchen Whitmer', prob: 0.19 },
@@ -469,7 +470,11 @@ export default function App() {
   const [showProjectHelp, setShowProjectHelp] = useState(false)
   const [voteAdvancePending, setVoteAdvancePending] = useState(false)
   const [liveMessage, setLiveMessage] = useState('')
-  const [predictionFx, setPredictionFx] = useState({ side: null, key: null })
+  const [streak, setStreak] = useState(0)
+  const [streakFxTick, setStreakFxTick] = useState(0)
+  const [badgeMessage, setBadgeMessage] = useState('')
+  const [badgeFxTick, setBadgeFxTick] = useState(0)
+  const [predictionFx, setPredictionFx] = useState({ side: null, tick: 0 })
   const [modeShiftFx, setModeShiftFx] = useState(false)
   const [bootTimedOut, setBootTimedOut] = useState(false)
   const [startupNotice, setStartupNotice] = useState('')
@@ -477,6 +482,7 @@ export default function App() {
   const [showStats, setShowStats] = useState(false)
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
+  const lastVotedSideRef = useRef(null)
   const touchStartRef = useRef({ x: null, y: null })
 
   useEffect(() => {
