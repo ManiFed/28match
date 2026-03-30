@@ -81,6 +81,7 @@ function applyCandidateVoteDelta(side, candidate, delta) {
 
   existing.votes = Math.max(0, existing.votes + delta)
   candidateVoteTotals.set(candidateKey, existing)
+}
 
 function getVoterVoteHistory(voterId) {
   const history = []
@@ -149,17 +150,12 @@ app.post('/api/poll/vote', (req, res) => {
   if (priorVote) {
     const priorCandidate = priorVote === 'dem' ? dem : rep
     applyCandidateVoteDelta(priorVote, priorCandidate, -1)
+  }
+
   if (dem?.id && dem?.name && rep?.id && rep?.name) {
     matchupMeta.set(key, {
       dem: { id: dem.id, name: dem.name },
       rep: { id: rep.id, name: rep.name },
-    })
-  }
-
-  if (votes.has(voterId)) {
-    return res.status(409).json({
-      error: 'You already voted on this matchup.',
-      ...getPollSummary(key, voterId),
     })
   }
 
