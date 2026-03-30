@@ -518,7 +518,7 @@ export default function App() {
   const [photos, setPhotos] = useState({})
   const [idx, setIdx] = useState(0)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
-  const [leaderboardSort, setLeaderboardSort] = useState('winRate')
+  const [leaderboardSort, setLeaderboardSort] = useState('composite')
   const [leaderboardData, setLeaderboardData] = useState([])
   const [leaderboardTotalVotes, setLeaderboardTotalVotes] = useState(0)
   const [leaderboardLoading, setLeaderboardLoading] = useState(false)
@@ -1186,9 +1186,12 @@ export default function App() {
   const voteProfile = getVoteProfile(sessionVotes)
   const sortedLeaderboard = [...leaderboardData].sort((a, b) => {
     if (leaderboardSort === 'votes') {
-      return b.votes - a.votes || b.winRate - a.winRate || a.name.localeCompare(b.name)
+      return b.votes - a.votes || b.compositeScore - a.compositeScore || a.name.localeCompare(b.name)
     }
-    return b.winRate - a.winRate || b.votes - a.votes || a.name.localeCompare(b.name)
+    if (leaderboardSort === 'winRate') {
+      return b.winRate - a.winRate || b.compositeScore - a.compositeScore || a.name.localeCompare(b.name)
+    }
+    return b.compositeScore - a.compositeScore || b.winRate - a.winRate || a.name.localeCompare(b.name)
   })
 
   return (
@@ -1406,6 +1409,13 @@ export default function App() {
               <span>Party</span>
               <button
                 type="button"
+                className={`leaderboard-sort-btn ${leaderboardSort === 'composite' ? 'active' : ''}`}
+                onClick={() => setLeaderboardSort('composite')}
+              >
+                Composite
+              </button>
+              <button
+                type="button"
                 className={`leaderboard-sort-btn ${leaderboardSort === 'winRate' ? 'active' : ''}`}
                 onClick={() => setLeaderboardSort('winRate')}
               >
@@ -1434,6 +1444,7 @@ export default function App() {
                   <span className={entry.party === 'dem' ? 'lb-party lb-dem' : 'lb-party lb-rep'}>
                     {entry.party === 'dem' ? 'Democrat' : 'Republican'}
                   </span>
+                  <span>{(entry.compositeScore * 100).toFixed(1)}</span>
                   <span>{(entry.winRate * 100).toFixed(1)}%</span>
                   <span>{entry.votes}</span>
                 </div>

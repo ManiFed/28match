@@ -130,25 +130,46 @@ app.get('/api/poll/leaderboard', async (_req, res) => {
         party,
         SUM(candidate_votes)::INT AS votes,
         COUNT(*)::INT AS matchup_count,
-        SUM(CASE WHEN candidate_votes > opponent_votes THEN 1 ELSE 0 END)::INT AS wins
+        SUM(CASE WHEN candidate_votes > opponent_votes THEN 1 ELSE 0 END)::INT AS wins,
+        AVG(candidate_votes::FLOAT / NULLIF(matchup_total_votes, 0)) AS avg_vote_share,
+        AVG(opponent_votes::FLOAT / NULLIF(matchup_total_votes, 0)) AS avg_opponent_share
       FROM candidate_matchups
       WHERE matchup_total_votes > 0
       GROUP BY candidate_id, candidate_name, party
-      ORDER BY
-        (SUM(CASE WHEN candidate_votes > opponent_votes THEN 1 ELSE 0 END)::FLOAT / NULLIF(COUNT(*), 0)) DESC,
-        SUM(candidate_votes) DESC,
-        candidate_name ASC
+      ORDER BY candidate_name ASC
     `)
 
-    const leaderboard = result.rows.map(row => ({
-      id: row.id,
-      name: row.name,
-      party: row.party,
-      votes: Number(row.votes),
-      wins: Number(row.wins),
-      matchupCount: Number(row.matchup_count),
-      winRate: Number(row.matchup_count) > 0 ? Number(row.wins) / Number(row.matchup_count) : 0,
-    }))
+    const leaderboard = result.rows.map(row => {
+      const votes = Number(row.votes)
+      const wins = Number(row.wins)
+      const matchupCount = Number(row.matchup_count)
+      const winRate = matchupCount > 0 ? wins / matchupCount : 0
+      const avgVoteShare = Number(row.avg_vote_share) || 0
+      const avgOpponentShare = Number(row.avg_opponent_share) || 0
+
+      const sampleSizeWeight = matchupCount / (matchupCount + 4)
+      const confidenceVoteShare = sampleSizeWeight * avgVoteShare + (1 - sampleSizeWeight) * 0.5
+      const difficultyMultiplier = 0.7 + (avgOpponentShare * 0.6)
+      const compositeScore = confidenceVoteShare * difficultyMultiplier
+
+      return {
+        id: row.id,
+        name: row.name,
+        party: row.party,
+        votes,
+        wins,
+        matchupCount,
+        winRate,
+        avgVoteShare,
+        avgOpponentShare,
+        compositeScore,
+      }
+    }).sort((a, b) => (
+      b.compositeScore - a.compositeScore
+      || b.winRate - a.winRate
+      || b.votes - a.votes
+      || a.name.localeCompare(b.name)
+    ))
 
     res.json({
       totalVotes: leaderboard.reduce((sum, entry) => sum + entry.votes, 0),

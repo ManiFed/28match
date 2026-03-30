@@ -405,7 +405,7 @@
 .leaderboard-header,
 .leaderboard-row {
   display: grid;
-  grid-template-columns: 64px 1fr 120px 90px 110px;
+  grid-template-columns: 64px 1fr 120px 90px 90px 110px;
   gap: 0.5rem;
   align-items: center;
   padding: 8px 16px;
@@ -1221,7 +1221,7 @@
   .header-sub { display: block; font-size: 0.62rem; }
   .leaderboard-header,
   .leaderboard-row {
-    grid-template-columns: 52px 1fr 84px 64px 72px;
+    grid-template-columns: 52px 1fr 84px 64px 64px 72px;
     font-size: 0.72rem;
   }
 }
