@@ -714,8 +714,32 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e) => {
-      const tagName = document.activeElement?.tagName?.toLowerCase()
-      if (tagName === 'input' || tagName === 'textarea') return
+      const activeElement = document.activeElement
+      const tagName = activeElement?.tagName?.toLowerCase()
+      const inputType = activeElement instanceof HTMLInputElement
+        ? activeElement.type?.toLowerCase()
+        : ''
+      const isTextInputType = [
+        'text',
+        'search',
+        'email',
+        'url',
+        'tel',
+        'password',
+        'number',
+        'date',
+        'datetime-local',
+        'month',
+        'time',
+        'week',
+      ].includes(inputType)
+      const isEditingControl = (
+        tagName === 'textarea' ||
+        tagName === 'select' ||
+        (tagName === 'input' && isTextInputType) ||
+        Boolean(activeElement?.isContentEditable)
+      )
+      if (isEditingControl) return
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
         vote('dem')
