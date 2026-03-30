@@ -129,12 +129,23 @@
   padding: 12px 16px;
 }
 
+.insights-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
 .insights-title {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #8f8f8f;
-  margin-bottom: 0.45rem;
+}
+
+.challenge-btn {
+  font-size: 0.66rem;
 }
 
 .insights-body {
@@ -151,6 +162,70 @@
 
 .insights-error {
   color: #ff7171;
+}
+
+.insights-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.insight-block {
+  border: 1px solid #232323;
+  background: #101010;
+  border-radius: 8px;
+  padding: 0.6rem;
+}
+
+.insight-block h3 {
+  margin: 0 0 0.4rem;
+  color: #dfdfdf;
+  font-size: 0.76rem;
+}
+
+.insights-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.78rem;
+  color: #bdbdbd;
+}
+
+.insights-list li + li {
+  margin-top: 0.22rem;
+}
+
+.recommendation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.recommendation-item {
+  text-align: left;
+  border: 1px solid #2f2f2f;
+  background: #151515;
+  color: #d6d6d6;
+  border-radius: 6px;
+  padding: 0.38rem 0.45rem;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.recommendation-item:hover {
+  border-color: #5867ff;
+  color: #fff;
+}
+
+.insights-footnote {
+  margin: 0.45rem 0 0;
+  color: #8f8f8f;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 1000px) {
+  .insights-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 

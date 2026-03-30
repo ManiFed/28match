@@ -192,7 +192,7 @@ app.post('/api/insights', async (req, res) => {
     })
   }
 
-  const { votes } = req.body || {}
+  const { votes, format = 'text', recommendationFeedback = null } = req.body || {}
   if (!Array.isArray(votes) || votes.length === 0) {
     return res.status(400).json({
       error: 'Provide a non-empty votes array to generate insights.',
@@ -211,18 +211,22 @@ app.post('/api/insights', async (req, res) => {
   const model = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
   const systemPrompt = [
     'You analyze informal political matchup voting behavior.',
-    'Be concise and specific. Keep output under 120 words.',
+    'Be concise and specific.',
     'Use neutral language, avoid moral judgment, and avoid claims about protected traits.',
-    'Output plain text only.',
+    'If asked for JSON, return valid JSON only.',
   ].join(' ')
 
   const userPrompt = [
     `These are a single user session's matchup votes (JSON): ${JSON.stringify(trimmedVotes)}`,
-    'Write one short paragraph with:',
-    '1) party lean,',
-    '2) top-picked candidates,',
-    '3) whether they pick underdogs vs favorites,',
-    '4) one caveat about small sample size.',
+    recommendationFeedback
+      ? `Recommendation engagement feedback (JSON): ${JSON.stringify(recommendationFeedback)}`
+      : null,
+    'Return JSON with exactly these fields:',
+    'bias_signals: array of 2-4 short bullet-like strings about noticeable patterns.',
+    'surprising_votes: array of 1-3 specific unusual picks.',
+    'suggested_matchups: array of 3 contrasting matchup ideas as short strings.',
+    'confidence_notes: array of 1-2 caveats about uncertainty/sample size.',
+    'Also include summary_text: one short paragraph (max 120 words) for quick reading.',
   ].join('\n')
 
   try {
@@ -249,14 +253,42 @@ app.post('/api/insights', async (req, res) => {
       })
     }
 
-    const summary = aiData?.choices?.[0]?.message?.content?.trim()
-    if (!summary) {
+    const rawContent = aiData?.choices?.[0]?.message?.content?.trim()
+    if (!rawContent) {
       return res.status(502).json({
         error: 'OpenRouter returned an empty response.',
       })
     }
 
-    res.json({ summary, model })
+    let parsed = null
+    try {
+      parsed = JSON.parse(rawContent)
+    } catch {
+      const match = rawContent.match(/\{[\s\S]*\}/)
+      if (match) {
+        try {
+          parsed = JSON.parse(match[0])
+        } catch {
+          parsed = null
+        }
+      }
+    }
+
+    const summary = parsed?.summary_text || rawContent
+    const structured = {
+      bias_signals: Array.isArray(parsed?.bias_signals) ? parsed.bias_signals : [],
+      surprising_votes: Array.isArray(parsed?.surprising_votes) ? parsed.surprising_votes : [],
+      suggested_matchups: Array.isArray(parsed?.suggested_matchups) ? parsed.suggested_matchups : [],
+      confidence_notes: Array.isArray(parsed?.confidence_notes) ? parsed.confidence_notes : [],
+    }
+
+    if (format === 'structured') {
+      return res.json({ structured, model })
+    }
+    if (format === 'both') {
+      return res.json({ summary, structured, model })
+    }
+    res.json({ summary, model, structured })
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to generate insights.' })
   }
