@@ -425,7 +425,7 @@ export default function App() {
           </div>
 
           <div className="rank-badge">
-            Weighted spot #{idx + 1}
+            #{idx + 1}
           </div>
 
           <div className="nav-row">
