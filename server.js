@@ -160,22 +160,37 @@ async function upsertVote({ key, voterId, side, dem, rep }) {
 app.get('/api/poll/leaderboard', async (_req, res) => {
   try {
     const result = await pool.query(`
-      SELECT candidate_id AS id, candidate_name AS name, party, SUM(votes)::INT AS votes
-      FROM (
+      WITH candidate_matchups AS (
         SELECT dem_candidate_id AS candidate_id,
                dem_candidate_name AS candidate_name,
                'dem'::TEXT AS party,
-               dem_votes AS votes
+               dem_votes AS candidate_votes,
+               rep_votes AS opponent_votes,
+               dem_votes + rep_votes AS matchup_total_votes
         FROM matchup_vote_totals
         UNION ALL
         SELECT rep_candidate_id AS candidate_id,
                rep_candidate_name AS candidate_name,
                'rep'::TEXT AS party,
-               rep_votes AS votes
+               rep_votes AS candidate_votes,
+               dem_votes AS opponent_votes,
+               dem_votes + rep_votes AS matchup_total_votes
         FROM matchup_vote_totals
-      ) candidate_totals
+      )
+      SELECT
+        candidate_id AS id,
+        candidate_name AS name,
+        party,
+        SUM(candidate_votes)::INT AS votes,
+        COUNT(*)::INT AS matchup_count,
+        SUM(CASE WHEN candidate_votes > opponent_votes THEN 1 ELSE 0 END)::INT AS wins
+      FROM candidate_matchups
+      WHERE matchup_total_votes > 0
       GROUP BY candidate_id, candidate_name, party
-      ORDER BY votes DESC, name ASC
+      ORDER BY
+        (SUM(CASE WHEN candidate_votes > opponent_votes THEN 1 ELSE 0 END)::FLOAT / NULLIF(COUNT(*), 0)) DESC,
+        SUM(candidate_votes) DESC,
+        candidate_name ASC
     `)
 
     const leaderboard = result.rows.map(row => ({
@@ -183,6 +198,9 @@ app.get('/api/poll/leaderboard', async (_req, res) => {
       name: row.name,
       party: row.party,
       votes: Number(row.votes),
+      wins: Number(row.wins),
+      matchupCount: Number(row.matchup_count),
+      winRate: Number(row.matchup_count) > 0 ? Number(row.wins) / Number(row.matchup_count) : 0,
     }))
 
     res.json({
