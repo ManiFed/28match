@@ -690,14 +690,18 @@ export default function App() {
         e.preventDefault()
         vote('rep')
       }
-      if (e.key === ' ') {
+      if (e.key === 'ArrowDown') {
         e.preventDefault()
         next()
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        prev()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [vote, next])
+  }, [vote, next, prev])
 
   const current = matchups[idx]
   const currentMatchupKey = current ? `${current.dem.id}-${current.rep.id}` : null
@@ -1044,7 +1048,7 @@ export default function App() {
             <div className="controls-row"><kbd>←</kbd> vote {current.dem.name.split(' ')[0]}</div>
             <div className="controls-row"><kbd>→</kbd> vote {current.rep.name.split(' ')[0]}</div>
             <div className="controls-row"><kbd>Swipe</kbd> left/right to vote</div>
-            <div className="controls-row"><kbd>Space</kbd> next matchup</div>
+            <div className="controls-row"><kbd>↑</kbd>/<kbd>↓</kbd> prev/next matchup</div>
           </div>
 
           <div className={`streak-badge ${streakFxTick ? 'streak-fx' : ''}`} key={`streak-${streakFxTick}`}>
