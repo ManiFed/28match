@@ -463,6 +463,53 @@
   background-image: radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px);
   background-size: 28px 28px;
   pointer-events: none;
+  z-index: 0;
+}
+
+/* Drifting background particles */
+.candidate-panel::after {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+  background-repeat: repeat;
+  background-size: 240px 240px;
+  animation: driftParticles 18s linear infinite;
+}
+
+.panel-dem::after {
+  background-image:
+    radial-gradient(circle at 14% 22%, rgba(130, 188, 255, 0.35) 0 3px, transparent 4px),
+    radial-gradient(circle at 74% 34%, rgba(175, 214, 255, 0.26) 0 2px, transparent 3px),
+    radial-gradient(circle at 42% 78%, rgba(121, 175, 255, 0.23) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at 86% 72%, rgba(202, 228, 255, 0.22) 0 1.8px, transparent 3px);
+}
+
+.panel-rep::after {
+  background-image:
+    radial-gradient(circle at 18% 28%, rgba(255, 151, 151, 0.33) 0 3px, transparent 4px),
+    radial-gradient(circle at 68% 42%, rgba(255, 186, 186, 0.26) 0 2px, transparent 3px),
+    radial-gradient(circle at 38% 76%, rgba(255, 126, 145, 0.22) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at 82% 64%, rgba(255, 206, 206, 0.2) 0 1.8px, transparent 3px);
+}
+
+.candidate-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes driftParticles {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-22px, 16px, 0);
+  }
+  100% {
+    transform: translate3d(-44px, 32px, 0);
+  }
 }
 
 .party-tag {
