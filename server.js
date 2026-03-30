@@ -2,20 +2,48 @@ import express from 'express'
 import { createProxyMiddleware } from 'http-proxy-middleware'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
+import { randomUUID } from 'crypto'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3000
-const matchupPolls = new Map()
 const candidateVoteTotals = new Map()
 const matchupVotes = new Map()
+const VOTER_COOKIE = 'voter_id'
 
 app.use(express.json())
 
-function getVoterId(req) {
-  const ip = req.ip || req.socket?.remoteAddress || 'unknown-ip'
-  const ua = req.get('user-agent') || 'unknown-ua'
-  return `${ip}::${ua}`
+function parseCookies(req) {
+  const cookieHeader = req.headers.cookie
+  if (!cookieHeader) return {}
+
+  return cookieHeader
+    .split(';')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .reduce((cookies, part) => {
+      const separator = part.indexOf('=')
+      if (separator === -1) return cookies
+
+      const key = decodeURIComponent(part.slice(0, separator).trim())
+      const value = decodeURIComponent(part.slice(separator + 1).trim())
+      cookies[key] = value
+      return cookies
+    }, {})
+}
+
+function getVoterId(req, res) {
+  const cookies = parseCookies(req)
+  const existing = cookies[VOTER_COOKIE]
+  if (existing) return existing
+
+  const voterId = randomUUID()
+  const oneYearSeconds = 60 * 60 * 24 * 365
+  res.setHeader(
+    'Set-Cookie',
+    `${VOTER_COOKIE}=${encodeURIComponent(voterId)}; Max-Age=${oneYearSeconds}; Path=/; HttpOnly; SameSite=Lax`
+  )
+  return voterId
 }
 
 function getPollSummary(key, voterId) {
@@ -41,7 +69,7 @@ function getPollSummary(key, voterId) {
 
 app.get('/api/poll/:key', (req, res) => {
   const key = req.params.key
-  const voterId = getVoterId(req)
+  const voterId = getVoterId(req, res)
   res.json(getPollSummary(key, voterId))
 })
 
@@ -51,7 +79,7 @@ app.post('/api/poll/vote', (req, res) => {
     return res.status(400).json({ error: 'Invalid vote payload.' })
   }
 
-  const voterId = getVoterId(req)
+  const voterId = getVoterId(req, res)
   const votes = matchupVotes.get(key) || new Map()
 
   if (votes.has(voterId)) {
@@ -77,6 +105,7 @@ app.post('/api/poll/vote', (req, res) => {
     candidateVoteTotals.set(candidateKey, existing)
   }
 
+  const poll = getPollSummary(key, voterId)
   res.json({ key, ...poll, totalVotes: poll.demVotes + poll.repVotes })
 })
 
