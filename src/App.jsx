@@ -119,6 +119,17 @@ async function fetchWikiPhoto(name) {
   }
 }
 
+function weightedShuffle(matchups) {
+  return matchups
+    .map((matchup) => {
+      const weight = Math.max(matchup.prob, Number.EPSILON)
+      const priority = -Math.log(Math.random()) / weight
+      return { matchup, priority }
+    })
+    .sort((a, b) => a.priority - b.priority)
+    .map(({ matchup }) => matchup)
+}
+
 function buildMatchups(dems, reps) {
   const list = []
   for (const dem of dems) {
@@ -126,8 +137,7 @@ function buildMatchups(dems, reps) {
       list.push({ dem, rep, prob: dem.prob * rep.prob })
     }
   }
-  list.sort((a, b) => b.prob - a.prob)
-  return list
+  return weightedShuffle(list)
 }
 
 function Initials({ name, party }) {
@@ -320,7 +330,7 @@ export default function App() {
       {/* Header */}
       <header className="app-header">
         <span className="header-title">2028 Presidential Matchups</span>
-        <span className="header-sub">Live odds from Polymarket · {total} matchups ranked by probability</span>
+        <span className="header-sub">Live odds from Polymarket · {total} matchups in weighted-random order</span>
       </header>
 
       {/* Main arena */}
@@ -343,7 +353,7 @@ export default function App() {
           </div>
 
           <div className="rank-badge">
-            #{idx + 1} most likely
+            Weighted spot #{idx + 1}
           </div>
 
           <div className="nav-row">
