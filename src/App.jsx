@@ -182,6 +182,10 @@ function fallbackAvatarUrl(name) {
   return `https://api.dicebear.com/9.x/initials/svg?${params.toString()}`
 }
 
+function getWikiUrl(name) {
+  return `https://en.wikipedia.org/wiki/${encodeURIComponent(name.replace(/\s+/g, '_'))}`
+}
+
 function generateSessionInsights(votes) {
   if (!votes.length) return ''
 
@@ -216,26 +220,40 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   return (
-    <button
-      className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''}`}
-      onClick={onVote}
-      type="button"
-      disabled={!canVote}
-    >
-      <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
-      <div className="vote-sparkle" aria-hidden="true" />
-      <div className="photo-wrapper" key={animKey}>
-        <img src={imageUrl} alt={candidate.name} className="candidate-photo" />
-      </div>
-      <div className="candidate-info" key={`info-${animKey}`}>
-        <h2 className="candidate-name">{candidate.name}</h2>
-        <div className="prob-pill">
-          <span className="prob-pct">{(candidate.prob * 100).toFixed(1)}%</span>
-          <span className="prob-label">nomination odds</span>
+    <div className="candidate-shell">
+      <button
+        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''}`}
+        onClick={onVote}
+        type="button"
+        disabled={!canVote}
+      >
+        <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
+        <div className="vote-sparkle" aria-hidden="true" />
+        <div className="photo-wrapper" key={animKey}>
+          <img src={imageUrl} alt={candidate.name} className="candidate-photo" />
         </div>
-        <div className="vote-hint">Click to vote</div>
-      </div>
-    </button>
+        <div className="candidate-info" key={`info-${animKey}`}>
+          <h2 className="candidate-name">
+            {candidate.name}
+            <a
+              href={getWikiUrl(candidate.name)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="candidate-wiki-link"
+              aria-label={`${candidate.name} Wikipedia page`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              ?
+            </a>
+          </h2>
+          <div className="prob-pill">
+            <span className="prob-pct">{(candidate.prob * 100).toFixed(1)}%</span>
+            <span className="prob-label">nomination odds</span>
+          </div>
+          <div className="vote-hint">Click to vote</div>
+        </div>
+      </button>
+    </div>
   )
 }
 
@@ -287,6 +305,7 @@ export default function App() {
   const [repCandidates, setRepCandidates] = useState([])
   const [randomness, setRandomness] = useState(0.2)
   const [showSettings, setShowSettings] = useState(false)
+  const [showProjectHelp, setShowProjectHelp] = useState(false)
   const [voterId] = useState(() => getOrCreateVoterId())
 
   useEffect(() => {
@@ -505,6 +524,29 @@ export default function App() {
                   <span>More likely</span>
                   <span>More random</span>
                 </div>
+              </div>
+            )}
+          </div>
+          <div className="settings-wrap">
+            <button
+              type="button"
+              className="header-btn settings-btn"
+              aria-label="About this project"
+              onClick={() => setShowProjectHelp(s => !s)}
+            >
+              ?
+            </button>
+            {showProjectHelp && (
+              <div className="settings-popover help-popover">
+                <div className="settings-title">About this project</div>
+                <p>
+                  This app pairs Democratic and Republican 2028 nominee markets from Polymarket and
+                  lets you vote on each matchup.
+                </p>
+                <p>
+                  Candidate percentages come from live nomination odds, while the poll percentages
+                  show votes cast by users inside this app.
+                </p>
               </div>
             )}
           </div>
