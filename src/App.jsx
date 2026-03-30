@@ -11,7 +11,6 @@ const BADGE_MILESTONES = [5, 15, 30]
 const REQUEST_TIMEOUT_MS = 12000
 const INITIAL_RANDOMNESS = 0.2
 const APP_BOOT_TIMEOUT_MS = 15000
-const STRONG_VOTE_HOLD_MS = 2000
 const FALLBACK_DEMS = [
   { id: 'fallback-dem-1', name: 'Gavin Newsom', prob: 0.23 },
   { id: 'fallback-dem-2', name: 'Gretchen Whitmer', prob: 0.19 },
@@ -298,16 +297,13 @@ function findNextUnvotedIndex(matchups, votedKeys, startIndex = 0, direction = 1
   return -1
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashStrength }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
-  const flashClassName = flashStrength
-    ? `vote-flash ${flashStrength === 'strong' ? 'vote-flash-strong' : ''}`
-    : ''
   return (
     <div className="candidate-shell">
       <button
-        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashClassName}`}
+        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''}`}
         onClick={onVote}
         type="button"
         disabled={!canVote}
@@ -397,7 +393,7 @@ export default function App() {
   const [recommendationEngagement, setRecommendationEngagement] = useState(() => loadRecommendationEngagement())
   const [recommendedMatchups, setRecommendedMatchups] = useState([])
   const [activeRecommendationType, setActiveRecommendationType] = useState(null)
-  const [voteFx, setVoteFx] = useState({ side: null, tick: 0, strength: null })
+  const [voteFx, setVoteFx] = useState({ side: null, tick: 0 })
   const [demCandidates, setDemCandidates] = useState(FALLBACK_DEMS)
   const [repCandidates, setRepCandidates] = useState(FALLBACK_REPS)
   const [randomness, setRandomness] = useState(INITIAL_RANDOMNESS)
@@ -418,18 +414,11 @@ export default function App() {
   const voteAdvanceTimerRef = useRef(null)
   const lastVotedSideRef = useRef(null)
   const touchStartRef = useRef({ x: null, y: null })
-  const heldArrowKeyRef = useRef(null)
-  const strongVoteTimerRef = useRef(null)
-  const strongVoteTriggeredRef = useRef(false)
-  const keyboardAdvancePendingRef = useRef(false)
 
   useEffect(() => {
     return () => {
       if (voteAdvanceTimerRef.current) {
         window.clearTimeout(voteAdvanceTimerRef.current)
-      }
-      if (strongVoteTimerRef.current) {
-        window.clearTimeout(strongVoteTimerRef.current)
       }
     }
   }, [])
@@ -478,28 +467,7 @@ export default function App() {
     return findNextUnvotedIndex(matchups, votedKeys, normalizedIdx, 1)
   }, [allMatchupsCompleted, idx, matchups, votedKeys])
 
-  const advanceAfterVote = useCallback((voteKey) => {
-    setIdx(i => {
-      const nextIdx = findNextUnvotedIndex(matchups, new Set([...votedKeys, voteKey]), i + 1, 1)
-      return nextIdx === -1 ? i : nextIdx
-    })
-  }, [matchups, votedKeys])
-
-  const finalizeKeyboardAdvance = useCallback(() => {
-    if (!keyboardAdvancePendingRef.current) return
-    keyboardAdvancePendingRef.current = false
-    setVoteAdvancePending(false)
-    setIdx(i => {
-      const currentMatchup = matchups[i]
-      const currentKey = currentMatchup ? `${currentMatchup.dem.id}-${currentMatchup.rep.id}` : null
-      const effectiveVotedKeys = currentKey ? new Set([...votedKeys, currentKey]) : votedKeys
-      const nextIdx = findNextUnvotedIndex(matchups, effectiveVotedKeys, i + 1, 1)
-      return nextIdx === -1 ? i : nextIdx
-    })
-  }, [matchups, votedKeys])
-
-  const vote = useCallback(async (side, options = {}) => {
-    const { weight = 1, advanceMode = 'timer', strength = 'normal' } = options
+  const vote = useCallback(async (side) => {
     if (voteAdvancePending) return
     const currentMatchup = matchups[activeIdx]
     if (!currentMatchup) return
@@ -520,14 +488,13 @@ export default function App() {
         body: JSON.stringify({
           key,
           side,
-          weight,
           dem: { id: currentMatchup.dem.id, name: currentMatchup.dem.name },
           rep: { id: currentMatchup.rep.id, name: currentMatchup.rep.name },
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Poll vote failed (${res.status})`)
-      setVoteFx({ side, tick: Date.now(), strength })
+      setVoteFx({ side, tick: Date.now() })
       setPollData(data)
       setSessionVotes(prev => {
         const nextVotes = [
@@ -539,7 +506,6 @@ export default function App() {
             repName: currentMatchup.rep.name,
             demProb: currentMatchup.dem.prob,
             repProb: currentMatchup.rep.prob,
-            weight,
             createdAt: new Date().toISOString(),
           },
         ]
@@ -577,26 +543,24 @@ export default function App() {
         }))
         setActiveRecommendationType(null)
       }
-      if (advanceMode === 'release') {
-        keyboardAdvancePendingRef.current = true
-        setVoteAdvancePending(true)
-      } else {
-        setVoteAdvancePending(true)
-        if (voteAdvanceTimerRef.current) {
-          window.clearTimeout(voteAdvanceTimerRef.current)
-        }
-        voteAdvanceTimerRef.current = window.setTimeout(() => {
-          advanceAfterVote(key)
-          setVoteAdvancePending(false)
-          voteAdvanceTimerRef.current = null
-        }, VOTE_CONFIRMATION_MS)
+      setVoteAdvancePending(true)
+      if (voteAdvanceTimerRef.current) {
+        window.clearTimeout(voteAdvanceTimerRef.current)
       }
+      voteAdvanceTimerRef.current = window.setTimeout(() => {
+        setIdx(i => {
+          const nextIdx = findNextUnvotedIndex(matchups, new Set([...votedKeys, key]), i + 1, 1)
+          return nextIdx === -1 ? i : nextIdx
+        })
+        setVoteAdvancePending(false)
+        voteAdvanceTimerRef.current = null
+      }, VOTE_CONFIRMATION_MS)
     } catch (err) {
       setPollError(err.message)
     } finally {
       setPollLoading(false)
     }
-  }, [activeIdx, activeRecommendationType, advanceAfterVote, matchups, voteAdvancePending, votedKeys])
+  }, [activeIdx, activeRecommendationType, matchups, voteAdvancePending, votedKeys])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -812,7 +776,7 @@ export default function App() {
   }, [buildContrastingRecommendations, queueRecommendedMatchup])
 
   useEffect(() => {
-    const isEditingControl = () => {
+    const handler = (e) => {
       const activeElement = document.activeElement
       const tagName = activeElement?.tagName?.toLowerCase()
       const inputType = activeElement instanceof HTMLInputElement
@@ -838,30 +802,14 @@ export default function App() {
         (tagName === 'input' && isTextInputType) ||
         Boolean(activeElement?.isContentEditable)
       )
-      return isEditingControl
-    }
-
-    const keydownHandler = (e) => {
-      if (isEditingControl()) return
+      if (isEditingControl) return
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        if (heldArrowKeyRef.current) return
-        heldArrowKeyRef.current = e.key
-        strongVoteTriggeredRef.current = false
-        strongVoteTimerRef.current = window.setTimeout(() => {
-          strongVoteTriggeredRef.current = true
-          vote('dem', { weight: 2, advanceMode: 'release', strength: 'strong' })
-        }, STRONG_VOTE_HOLD_MS)
+        vote('dem')
       }
       if (e.key === 'ArrowRight') {
         e.preventDefault()
-        if (heldArrowKeyRef.current) return
-        heldArrowKeyRef.current = e.key
-        strongVoteTriggeredRef.current = false
-        strongVoteTimerRef.current = window.setTimeout(() => {
-          strongVoteTriggeredRef.current = true
-          vote('rep', { weight: 2, advanceMode: 'release', strength: 'strong' })
-        }, STRONG_VOTE_HOLD_MS)
+        vote('rep')
       }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -872,31 +820,9 @@ export default function App() {
         prev()
       }
     }
-
-    const keyupHandler = (e) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-      if (heldArrowKeyRef.current !== e.key) return
-      e.preventDefault()
-      heldArrowKeyRef.current = null
-      if (strongVoteTimerRef.current) {
-        window.clearTimeout(strongVoteTimerRef.current)
-        strongVoteTimerRef.current = null
-      }
-      if (strongVoteTriggeredRef.current) {
-        finalizeKeyboardAdvance()
-      } else {
-        vote(e.key === 'ArrowLeft' ? 'dem' : 'rep', { advanceMode: 'release' })
-      }
-      strongVoteTriggeredRef.current = false
-    }
-
-    window.addEventListener('keydown', keydownHandler)
-    window.addEventListener('keyup', keyupHandler)
-    return () => {
-      window.removeEventListener('keydown', keydownHandler)
-      window.removeEventListener('keyup', keyupHandler)
-    }
-  }, [finalizeKeyboardAdvance, next, prev, vote])
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [vote, next, prev])
 
   const current = matchups[activeIdx] ?? matchups[0]
   const currentMatchupKey = current ? `${current.dem.id}-${current.rep.id}` : null
@@ -955,11 +881,10 @@ export default function App() {
   const demVotePct = pollData?.totalVotes ? (pollData.demVotes / pollData.totalVotes) * 100 : 0
   const repVotePct = pollData?.totalVotes ? (pollData.repVotes / pollData.totalVotes) * 100 : 0
   const sessionVoteTotals = sessionVotes.reduce((acc, vote) => {
-    const voteWeight = Number(vote.weight) || 1
-    acc[vote.side] += voteWeight
+    acc[vote.side] += 1
     const trait = classifyVote(vote)
-    if (trait === 'underdog') acc.underdog += voteWeight
-    if (trait === 'favorite') acc.frontrunner += voteWeight
+    if (trait === 'underdog') acc.underdog += 1
+    if (trait === 'favorite') acc.frontrunner += 1
     return acc
   }, { dem: 0, rep: 0, underdog: 0, frontrunner: 0 })
   const totalSessionVotes = sessionVoteTotals.dem + sessionVoteTotals.rep
@@ -1221,7 +1146,7 @@ export default function App() {
           animKey={`dem-${activeIdx}`}
           onVote={() => { vote('dem') }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
-          flashStrength={voteFx.side === 'dem' ? voteFx.strength : null}
+          flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
         />
 
         <div className="vs-column" role="region" aria-label="Matchup status">
@@ -1264,7 +1189,6 @@ export default function App() {
             <div className="controls-title">Who would you vote for?</div>
             <div className="controls-row"><kbd>←</kbd> vote {current.dem.name.split(' ')[0]}</div>
             <div className="controls-row"><kbd>→</kbd> vote {current.rep.name.split(' ')[0]}</div>
-            <div className="controls-row"><kbd>Hold 2s</kbd> strong vote (2x) on release</div>
             <div className="controls-row"><kbd>Swipe</kbd> left/right to vote</div>
             <div className="controls-row"><kbd>↑</kbd>/<kbd>↓</kbd> prev/next matchup</div>
           </div>
@@ -1286,7 +1210,7 @@ export default function App() {
           animKey={`rep-${activeIdx}`}
           onVote={() => { vote('rep') }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
-          flashStrength={voteFx.side === 'rep' ? voteFx.strength : null}
+          flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
         />
       </main>
       {showLegendPopup && allMatchupsCompleted && (

@@ -479,10 +479,6 @@
   animation: votePulse 420ms ease-out;
 }
 
-.candidate-panel.vote-flash-strong {
-  animation: strongVotePulse 620ms cubic-bezier(0.12, 0.72, 0.14, 1.1);
-}
-
 .candidate-panel .vote-sparkle {
   position: absolute;
   inset: -20%;
@@ -495,10 +491,6 @@
   animation: voteSpark 480ms ease-out;
 }
 
-.candidate-panel.vote-flash-strong .vote-sparkle {
-  animation: strongVoteSpark 640ms ease-out;
-}
-
 @keyframes votePulse {
   0% { transform: scale(1); }
   35% { transform: scale(1.02); }
@@ -509,19 +501,6 @@
   0% { opacity: 0; transform: scale(0.45); }
   20% { opacity: 0.8; }
   100% { opacity: 0; transform: scale(1.15); }
-}
-
-@keyframes strongVotePulse {
-  0% { transform: scale(1); }
-  22% { transform: scale(1.08); }
-  45% { transform: scale(1.02); }
-  100% { transform: scale(1); }
-}
-
-@keyframes strongVoteSpark {
-  0% { opacity: 0; transform: scale(0.25); }
-  18% { opacity: 0.95; }
-  100% { opacity: 0; transform: scale(1.65); }
 }
 
 .panel-dem {
