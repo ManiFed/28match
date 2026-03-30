@@ -3,6 +3,27 @@ import './App.css'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
+const SESSION_VOTES_KEY = 'matchup-session-votes-v1'
+
+function loadSessionVotes() {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_VOTES_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveSessionVotes(votes) {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(SESSION_VOTES_KEY, JSON.stringify(votes))
+  } catch {
+    // Ignore session storage errors.
+  }
+}
 
 async function fetchCandidates(slug, partyLabel) {
   const res = await fetch(`/api/polymarket/events?slug=${slug}`)
@@ -149,6 +170,36 @@ function fallbackAvatarUrl(name) {
   return `https://api.dicebear.com/9.x/initials/svg?${params.toString()}`
 }
 
+function generateSessionInsights(votes) {
+  if (!votes.length) return ''
+
+  const totalVotes = votes.length
+  const demVotes = votes.filter(vote => vote.side === 'dem').length
+  const repVotes = totalVotes - demVotes
+
+  const partyLean = demVotes === repVotes
+    ? 'an even split between Democrats and Republicans'
+    : demVotes > repVotes
+      ? `a Democratic lean (${Math.round((demVotes / totalVotes) * 100)}% of your votes)`
+      : `a Republican lean (${Math.round((repVotes / totalVotes) * 100)}% of your votes)`
+
+  const candidateCounts = votes.reduce((acc, vote) => {
+    const pickedName = vote.side === 'dem' ? vote.demName : vote.repName
+    acc[pickedName] = (acc[pickedName] || 0) + 1
+    return acc
+  }, {})
+  const topCandidate = Object.entries(candidateCounts).sort((a, b) => b[1] - a[1])[0]
+
+  const underdogVotes = votes.filter(vote => {
+    const demProb = Number(vote.demProb) || 0
+    const repProb = Number(vote.repProb) || 0
+    return (vote.side === 'dem' && demProb < repProb) || (vote.side === 'rep' && repProb < demProb)
+  }).length
+  const upsetRate = Math.round((underdogVotes / totalVotes) * 100)
+
+  return `Based on ${totalVotes} votes in this browser session, you show ${partyLean}. Your most selected candidate so far is ${topCandidate[0]} (${topCandidate[1]} picks). You chose the lower-probability side in ${upsetRate}% of matchups, suggesting ${upsetRate >= 45 ? 'a contrarian streak' : 'a tendency to align with market favorites'}.`
+}
+
 function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
@@ -214,6 +265,7 @@ export default function App() {
   const [pollLoading, setPollLoading] = useState(false)
   const [pollError, setPollError] = useState(null)
   const [votedKeys, setVotedKeys] = useState({})
+  const [sessionVotes, setSessionVotes] = useState(() => loadSessionVotes())
   const [showInsights, setShowInsights] = useState(false)
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsError, setInsightsError] = useState(null)
@@ -259,6 +311,22 @@ export default function App() {
       setVoteFx({ side, tick: Date.now() })
       setPollData(data)
       setVotedKeys(prev => ({ ...prev, [key]: true }))
+      setSessionVotes(prev => {
+        const nextVotes = [
+          ...prev,
+          {
+            key,
+            side,
+            demName: currentMatchup.dem.name,
+            repName: currentMatchup.rep.name,
+            demProb: currentMatchup.dem.prob,
+            repProb: currentMatchup.rep.prob,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+        saveSessionVotes(nextVotes)
+        return nextVotes
+      })
     } catch (err) {
       setPollError(err.message)
     } finally {
@@ -286,17 +354,14 @@ export default function App() {
     setInsightsLoading(true)
     setInsightsError(null)
     try {
-      const res = await fetch('/api/insights', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || `Insights API returned ${res.status}`)
-      setInsightsSummary(data.summary || '')
+      setInsightsSummary(generateSessionInsights(sessionVotes))
     } catch (err) {
       setInsightsError(err.message)
       setInsightsSummary('')
     } finally {
       setInsightsLoading(false)
     }
-  }, [])
+  }, [sessionVotes])
 
   useEffect(() => {
     ;(async () => {
