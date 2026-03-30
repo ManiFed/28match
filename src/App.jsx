@@ -140,20 +140,18 @@ function buildMatchups(dems, reps) {
   return weightedShuffle(list)
 }
 
-function Initials({ name, party }) {
-  const parts = name.trim().split(/\s+/)
-  const initials = parts.length >= 2
-    ? parts[0][0] + parts[parts.length - 1][0]
-    : name.slice(0, 2)
-  return (
-    <div className={`initials-avatar initials-${party}`}>
-      {initials.toUpperCase()}
-    </div>
-  )
+function fallbackAvatarUrl(name) {
+  const params = new URLSearchParams({
+    seed: name,
+    backgroundType: 'gradientLinear',
+    size: '256',
+  })
+  return `https://api.dicebear.com/9.x/initials/svg?${params.toString()}`
 }
 
 function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote }) {
   const isDem = party === 'dem'
+  const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   return (
     <button
       className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'}`}
@@ -163,10 +161,7 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote }) {
     >
       <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
       <div className="photo-wrapper" key={animKey}>
-        {photo
-          ? <img src={photo} alt={candidate.name} className="candidate-photo" />
-          : <Initials name={candidate.name} party={party} />
-        }
+        <img src={imageUrl} alt={candidate.name} className="candidate-photo" />
       </div>
       <div className="candidate-info" key={`info-${animKey}`}>
         <h2 className="candidate-name">{candidate.name}</h2>
