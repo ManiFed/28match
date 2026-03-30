@@ -490,7 +490,7 @@
 }
 
 .candidate-panel:disabled {
-  opacity: 0.7;
+  opacity: 1;
   cursor: wait;
 }
 
