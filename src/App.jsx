@@ -9,7 +9,6 @@ const VOTE_CONFIRMATION_MS = 500
 const STRONG_VOTE_CONFIRMATION_MS = 1000
 const PANEL_DOUBLE_CLICK_MS = 230
 const SWIPE_THRESHOLD_PX = 52
-const BADGE_MILESTONES = [5, 15, 30]
 const REQUEST_TIMEOUT_MS = 12000
 const INITIAL_RANDOMNESS = 0.2
 const APP_BOOT_TIMEOUT_MS = 15000
@@ -299,7 +298,7 @@ function findNextUnvotedIndex(matchups, votedKeys, startIndex = 0, direction = 1
   return -1
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick, flashStrength }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick, predictionTick }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   const clickTimerRef = useRef(null)
@@ -335,9 +334,8 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
   return (
     <div className="candidate-shell">
       <button
-        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''} ${flashTick && flashStrength === 'strong' ? 'vote-flash-strong' : ''}`}
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
+        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''} ${predictionTick ? 'prediction-pulse' : ''}`}
+        onClick={onVote}
         type="button"
         disabled={!canVote}
         aria-label={`Vote for ${candidate.name} (${isDem ? 'Democrat' : 'Republican'})`}
@@ -434,18 +432,13 @@ export default function App() {
   const [showProjectHelp, setShowProjectHelp] = useState(false)
   const [voteAdvancePending, setVoteAdvancePending] = useState(false)
   const [liveMessage, setLiveMessage] = useState('')
-  const [streak, setStreak] = useState(0)
-  const [streakFxTick, setStreakFxTick] = useState(0)
-  const [badgeMessage, setBadgeMessage] = useState('')
-  const [badgeFxTick, setBadgeFxTick] = useState(0)
+  const [predictionFx, setPredictionFx] = useState({ side: null, tick: 0 })
   const [modeShiftFx, setModeShiftFx] = useState(false)
-  const [showLegendPopup, setShowLegendPopup] = useState(false)
   const [bootTimedOut, setBootTimedOut] = useState(false)
   const [startupNotice, setStartupNotice] = useState('')
   const [loading, setLoading] = useState(true)
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
-  const lastVotedSideRef = useRef(null)
   const touchStartRef = useRef({ x: null, y: null })
 
   useEffect(() => {
@@ -463,6 +456,14 @@ export default function App() {
     }, 500)
     return () => window.clearTimeout(timer)
   }, [voteFx.side, voteFx.tick])
+
+  useEffect(() => {
+    if (!predictionFx.side) return
+    const timer = window.setTimeout(() => {
+      setPredictionFx(prev => ({ ...prev, side: null }))
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  }, [predictionFx.side, predictionFx.tick])
 
   useEffect(() => {
     saveRecommendationEngagement(recommendationEngagement)
@@ -547,6 +548,7 @@ export default function App() {
           },
         ]
         saveSessionVotes(nextVotes)
+        setLiveMessage(`Vote recorded for ${side === 'dem' ? currentMatchup.dem.name : currentMatchup.rep.name}.`)
         let nextStreak = 1
         setStreak(prevStreak => {
           nextStreak = lastVotedSideRef.current === side ? prevStreak + 1 : 1
@@ -599,6 +601,20 @@ export default function App() {
       setPollLoading(false)
     }
   }, [activeIdx, activeRecommendationType, matchups, voteAdvancePending, votedKeys])
+
+  const predictVote = useCallback(() => {
+    if (!sessionVotes.length) {
+      setLiveMessage('Vote on at least one matchup first so a prediction can be made.')
+      return
+    }
+    const activeMatchup = matchups[activeIdx] ?? matchups[0]
+    if (!activeMatchup) return
+    const profile = getVoteProfile(sessionVotes)
+    setPredictionFx({ side: profile.preferredSide, tick: Date.now() })
+    setLiveMessage(
+      `Predicted pick: ${profile.preferredSide === 'dem' ? activeMatchup.dem.name : activeMatchup.rep.name}.`
+    )
+  }, [activeIdx, matchups, sessionVotes])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -901,15 +917,10 @@ export default function App() {
 
   useEffect(() => {
     if (!matchups.length || voteAdvancePending) return
-    if (allMatchupsCompleted) {
-      setShowLegendPopup(true)
-      return
-    }
-
     if (activeIdx !== -1 && activeIdx !== idx) {
       setIdx(activeIdx)
     }
-  }, [activeIdx, allMatchupsCompleted, idx, matchups.length, voteAdvancePending])
+  }, [activeIdx, idx, matchups.length, voteAdvancePending])
 
   if (loading) return <LoadingScreen timedOut={bootTimedOut} />
   if (error) return <ErrorScreen message={error} />
@@ -1185,6 +1196,7 @@ export default function App() {
           onVote={(strength) => { vote('dem', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
+          predictionTick={predictionFx.side === 'dem' ? predictionFx.tick : 0}
           flashStrength={voteFx.side === 'dem' ? voteFx.strength : 'normal'}
         />
 
@@ -1232,14 +1244,9 @@ export default function App() {
             <div className="controls-row"><kbd>↑</kbd>/<kbd>↓</kbd> prev/next matchup</div>
           </div>
 
-          <div className={`streak-badge ${streakFxTick ? 'streak-fx' : ''}`} key={`streak-${streakFxTick}`}>
-            Current streak: {streak}
-          </div>
-          {badgeMessage && (
-            <div className={`unlock-badge ${badgeFxTick ? 'unlock-fx' : ''}`} key={`badge-${badgeFxTick}`}>
-              {badgeMessage}
-            </div>
-          )}
+          <button type="button" className="header-btn predict-btn" onClick={predictVote}>
+            Predict my vote
+          </button>
         </div>
 
         <CandidatePanel
@@ -1250,33 +1257,10 @@ export default function App() {
           onVote={(strength) => { vote('rep', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
+          predictionTick={predictionFx.side === 'rep' ? predictionFx.tick : 0}
           flashStrength={voteFx.side === 'rep' ? voteFx.strength : 'normal'}
         />
       </main>
-      {showLegendPopup && allMatchupsCompleted && (
-        <div className="legend-modal-backdrop" onClick={() => setShowLegendPopup(false)}>
-          <section
-            className="legend-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="All matchups completed"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="legend-emoji" aria-hidden="true">🎉</div>
-            <h2>you're a legend!</h2>
-            <p>You voted on all {total} matchups in this browser session.</p>
-            <div className="legend-stats">
-              <div><span>Total votes</span><strong>{totalSessionVotes}</strong></div>
-              <div><span>Dem votes</span><strong>{sessionVoteTotals.dem}</strong></div>
-              <div><span>Rep votes</span><strong>{sessionVoteTotals.rep}</strong></div>
-              <div><span>Underdog picks</span><strong>{sessionVoteTotals.underdog}</strong></div>
-            </div>
-            <button type="button" className="header-btn" onClick={() => setShowLegendPopup(false)}>
-              Keep browsing stats
-            </button>
-          </section>
-        </div>
-      )}
     </div>
   )
 }
