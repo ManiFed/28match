@@ -208,6 +208,12 @@ export default function App() {
   const [matchups, setMatchups] = useState([])
   const [photos, setPhotos] = useState({})
   const [idx, setIdx] = useState(0)
+  const [showList, setShowList] = useState(false)
+  const [showLeaderboard, setShowLeaderboard] = useState(false)
+  const [leaderboardData, setLeaderboardData] = useState([])
+  const [leaderboardTotalVotes, setLeaderboardTotalVotes] = useState(0)
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false)
+  const [leaderboardError, setLeaderboardError] = useState(null)
   const [pollData, setPollData] = useState(null)
   const [pollLoading, setPollLoading] = useState(false)
   const [pollError, setPollError] = useState(null)
@@ -240,7 +246,12 @@ export default function App() {
       const res = await fetch('/api/poll/vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, side }),
+        body: JSON.stringify({
+          key,
+          side,
+          dem: { id: currentMatchup.dem.id, name: currentMatchup.dem.name },
+          rep: { id: currentMatchup.rep.id, name: currentMatchup.rep.name },
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Poll vote failed (${res.status})`)
@@ -252,6 +263,22 @@ export default function App() {
       setPollLoading(false)
     }
   }, [idx, matchups])
+
+  const fetchLeaderboard = useCallback(async () => {
+    setLeaderboardLoading(true)
+    setLeaderboardError(null)
+    try {
+      const res = await fetch('/api/poll/leaderboard')
+      if (!res.ok) throw new Error(`Leaderboard API returned ${res.status}`)
+      const data = await res.json()
+      setLeaderboardData(data.leaderboard || [])
+      setLeaderboardTotalVotes(data.totalVotes || 0)
+    } catch (err) {
+      setLeaderboardError(err.message)
+    } finally {
+      setLeaderboardLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     ;(async () => {
@@ -316,6 +343,11 @@ export default function App() {
     fetchPoll(current)
   }, [current, hasVotedCurrent, fetchPoll])
 
+  useEffect(() => {
+    if (!showLeaderboard) return
+    fetchLeaderboard()
+  }, [showLeaderboard, fetchLeaderboard, pollData?.totalVotes])
+
   if (loading) return <LoadingScreen />
   if (error) return <ErrorScreen message={error} />
   if (!matchups.length) return <ErrorScreen message="No matchups found in market data." />
@@ -330,8 +362,48 @@ export default function App() {
       {/* Header */}
       <header className="app-header">
         <span className="header-title">2028 Presidential Matchups</span>
-        <span className="header-sub">Live odds from Polymarket · {total} matchups in weighted-random order</span>
+        <div className="header-actions">
+          <button
+            type="button"
+            className="header-btn"
+            onClick={() => setShowLeaderboard(s => !s)}
+          >
+            {showLeaderboard ? 'Hide leaderboard' : 'Leaderboard'}
+          </button>
+          <span className="header-sub">Live odds from Polymarket · {total} matchups ranked by probability</span>
+        </div>
       </header>
+
+      {showLeaderboard && (
+        <section className="leaderboard-drawer">
+          <div className="leaderboard-header">
+            <span>Rank</span>
+            <span>Name</span>
+            <span>Party</span>
+            <span>Votes</span>
+          </div>
+          <div className="leaderboard-body">
+            {leaderboardLoading && <div className="leaderboard-status">Loading leaderboard…</div>}
+            {!leaderboardLoading && leaderboardError && (
+              <div className="leaderboard-status leaderboard-error">{leaderboardError}</div>
+            )}
+            {!leaderboardLoading && !leaderboardError && leaderboardData.length === 0 && (
+              <div className="leaderboard-status">No votes yet.</div>
+            )}
+            {!leaderboardLoading && !leaderboardError && leaderboardData.map((entry, i) => (
+              <div className="leaderboard-row" key={`${entry.party}-${entry.id}`}>
+                <span>#{i + 1}</span>
+                <span className="lb-name">{entry.name}</span>
+                <span className={entry.party === 'dem' ? 'lb-party lb-dem' : 'lb-party lb-rep'}>
+                  {entry.party === 'dem' ? 'Democrat' : 'Republican'}
+                </span>
+                <span>{entry.votes}</span>
+              </div>
+            ))}
+          </div>
+          <div className="leaderboard-footer">{leaderboardTotalVotes} total votes cast</div>
+        </section>
+      )}
 
       {/* Main arena */}
       <main className="arena">
