@@ -170,7 +170,10 @@ function buildMatchups(dems, reps, randomness = 0) {
     }
   }
   return weightedShuffle(list.map(matchup => ({ ...matchup, prob: matchup.sortProb })))
-    .map(({ dem, rep, prob }) => ({ dem, rep, prob }))
+    .map(({ dem, rep }) => {
+      const baseProb = dem.prob * rep.prob
+      return { dem, rep, prob: baseProb }
+    })
 }
 
 function fallbackAvatarUrl(name) {
