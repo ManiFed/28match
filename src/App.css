@@ -1202,6 +1202,34 @@
 }
 
 @media (max-width: 700px) {
+  .app {
+    height: 100dvh;
+  }
+
+  .app-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+    padding: 10px 12px;
+  }
+
+  .header-title {
+    text-align: center;
+    font-size: 0.86rem;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.45rem;
+  }
+
+  .header-btn {
+    padding: 9px 10px;
+    font-size: 0.68rem;
+  }
+
   .arena { flex-direction: column; }
 
   .candidate-panel { padding: 1.2rem 1rem; gap: 1rem; }
