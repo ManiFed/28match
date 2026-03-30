@@ -213,6 +213,10 @@ export default function App() {
   const [pollLoading, setPollLoading] = useState(false)
   const [pollError, setPollError] = useState(null)
   const [votedKeys, setVotedKeys] = useState({})
+  const [showInsights, setShowInsights] = useState(false)
+  const [insightsLoading, setInsightsLoading] = useState(false)
+  const [insightsError, setInsightsError] = useState(null)
+  const [insightsSummary, setInsightsSummary] = useState('')
 
   const fetchPoll = useCallback(async (matchup) => {
     const key = `${matchup.dem.id}-${matchup.rep.id}`
@@ -272,6 +276,22 @@ export default function App() {
       setLeaderboardError(err.message)
     } finally {
       setLeaderboardLoading(false)
+    }
+  }, [])
+
+  const fetchInsights = useCallback(async () => {
+    setInsightsLoading(true)
+    setInsightsError(null)
+    try {
+      const res = await fetch('/api/insights', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Insights API returned ${res.status}`)
+      setInsightsSummary(data.summary || '')
+    } catch (err) {
+      setInsightsError(err.message)
+      setInsightsSummary('')
+    } finally {
+      setInsightsLoading(false)
     }
   }, [])
 
@@ -367,9 +387,38 @@ export default function App() {
           >
             {showLeaderboard ? 'Hide leaderboard' : 'Leaderboard'}
           </button>
+          <button
+            type="button"
+            className="header-btn"
+            onClick={() => {
+              setShowInsights(open => {
+                const nextOpen = !open
+                if (nextOpen) fetchInsights()
+                return nextOpen
+              })
+            }}
+          >
+            {showInsights ? 'Hide insights' : 'Insights'}
+          </button>
           <span className="header-sub">Live odds from Polymarket · {total} matchups ranked by probability</span>
         </div>
       </header>
+
+      {showInsights && (
+        <section className="insights-drawer">
+          <div className="insights-title">AI Political Insights</div>
+          {insightsLoading && <div className="insights-status">Generating your political summary…</div>}
+          {!insightsLoading && insightsError && (
+            <div className="insights-status insights-error">{insightsError}</div>
+          )}
+          {!insightsLoading && !insightsError && insightsSummary && (
+            <p className="insights-body">{insightsSummary}</p>
+          )}
+          {!insightsLoading && !insightsError && !insightsSummary && (
+            <div className="insights-status">Vote on a few matchups first to generate insights.</div>
+          )}
+        </section>
+      )}
 
       {showLeaderboard && (
         <section className="leaderboard-drawer">
