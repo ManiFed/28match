@@ -15,7 +15,7 @@ async function fetchCandidates(slug, partyLabel) {
 
   const markets = event.markets || []
 
-  const candidates = markets
+  const rawCandidates = markets
     .map(market => {
       let outcomes, prices
       try {
@@ -47,13 +47,57 @@ async function fetchCandidates(slug, partyLabel) {
       if (prob > 1) return null
 
       const name = nameMatch[1].trim()
+      const active = market.active !== false
+      const acceptingOrders = market.acceptingOrders !== false
+      const closed = market.closed === true
+      const archived = market.archived === true
+      const liquidity = Number.parseFloat(market.liquidityNum ?? market.liquidity ?? 0) || 0
+      const volume = Number.parseFloat(market.volumeNum ?? market.volume ?? 0) || 0
 
-      return { id: market.id, name, prob }
+      return {
+        id: market.id,
+        name,
+        prob,
+        active,
+        acceptingOrders,
+        closed,
+        archived,
+        liquidity,
+        volume,
+      }
     })
     .filter(Boolean)
-    .sort((a, b) => b.prob - a.prob)
 
-  return candidates
+  // Some events can include duplicate nominee markets per candidate
+  // (historical/archived + active). Prefer active, order-accepting, liquid markets.
+  const byName = new Map()
+  for (const candidate of rawCandidates) {
+    const current = byName.get(candidate.name)
+    if (!current) {
+      byName.set(candidate.name, candidate)
+      continue
+    }
+
+    const rank = (c) => [
+      c.active && !c.closed && !c.archived ? 1 : 0,
+      c.acceptingOrders ? 1 : 0,
+      c.liquidity,
+      c.volume,
+    ]
+    const [a1, a2, a3, a4] = rank(candidate)
+    const [b1, b2, b3, b4] = rank(current)
+    const candidateWins = (
+      a1 > b1 ||
+      (a1 === b1 && a2 > b2) ||
+      (a1 === b1 && a2 === b2 && a3 > b3) ||
+      (a1 === b1 && a2 === b2 && a3 === b3 && a4 > b4)
+    )
+    if (candidateWins) byName.set(candidate.name, candidate)
+  }
+
+  return [...byName.values()]
+    .sort((a, b) => b.prob - a.prob)
+    .map(({ id, name, prob }) => ({ id, name, prob }))
 }
 
 async function fetchWikiPhoto(name) {
@@ -154,10 +198,10 @@ export default function App() {
   const [matchups, setMatchups] = useState([])
   const [photos, setPhotos] = useState({})
   const [idx, setIdx] = useState(0)
-  const [showList, setShowList] = useState(false)
   const [pollData, setPollData] = useState(null)
   const [pollLoading, setPollLoading] = useState(false)
   const [pollError, setPollError] = useState(null)
+  const [votedKeys, setVotedKeys] = useState({})
 
   const fetchPoll = useCallback(async (matchup) => {
     const key = `${matchup.dem.id}-${matchup.rep.id}`
@@ -191,6 +235,7 @@ export default function App() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Poll vote failed (${res.status})`)
       setPollData(data)
+      setVotedKeys(prev => ({ ...prev, [key]: true }))
     } catch (err) {
       setPollError(err.message)
     } finally {
@@ -227,16 +272,6 @@ export default function App() {
   const prev = useCallback(() => setIdx(i => Math.max(0, i - 1)), [])
   const next = useCallback(() => setIdx(i => Math.min(matchups.length - 1, i + 1)), [matchups.length])
 
-  const randomWeighted = useCallback(() => {
-    const total = matchups.reduce((s, m) => s + m.prob, 0)
-    let r = Math.random() * total
-    for (let i = 0; i < matchups.length; i++) {
-      r -= matchups[i].prob
-      if (r <= 0) { setIdx(i); return }
-    }
-    setIdx(matchups.length - 1)
-  }, [matchups])
-
   useEffect(() => {
     const handler = (e) => {
       if (e.key === 'ArrowLeft') {
@@ -257,11 +292,19 @@ export default function App() {
   }, [vote, next, pollData?.hasVoted])
 
   const current = matchups[idx]
+  const currentKey = current ? `${current.dem.id}-${current.rep.id}` : null
+  const hasVotedCurrent = !!(currentKey && votedKeys[currentKey])
 
   useEffect(() => {
     if (!current) return
+    if (!hasVotedCurrent) {
+      setPollData(null)
+      setPollError(null)
+      setPollLoading(false)
+      return
+    }
     fetchPoll(current)
-  }, [current, fetchPoll])
+  }, [current, hasVotedCurrent, fetchPoll])
 
   if (loading) return <LoadingScreen />
   if (error) return <ErrorScreen message={error} />
@@ -294,13 +337,6 @@ export default function App() {
         <div className="vs-column">
           <div className="vs-text">VS</div>
 
-          <div className="controls-card">
-            <div className="controls-title">Controls</div>
-            <div className="controls-row"><kbd>←</kbd> vote {current.dem.name.split(' ')[0]}</div>
-            <div className="controls-row"><kbd>→</kbd> vote {current.rep.name.split(' ')[0]}</div>
-            <div className="controls-row"><kbd>Space</kbd> next matchup</div>
-          </div>
-
           <div className="combined-prob">
             <span className="cp-pct">{(current.prob * 100).toFixed(2)}%</span>
             <span className="cp-label">matchup probability</span>
@@ -320,43 +356,35 @@ export default function App() {
             </button>
           </div>
 
-          <button className="dice-btn" onClick={randomWeighted} title="Weighted random matchup">
-            &#9646; Random
-          </button>
-
-          <button className="list-toggle" onClick={() => setShowList(s => !s)}>
-            {showList ? 'Hide list' : 'All matchups'}
-          </button>
-
           <div className="poll-card">
-            <div className="poll-title">Who wins this matchup?</div>
-            <div className="poll-actions">
-              <button className="poll-btn poll-dem" onClick={() => vote('dem')} disabled={pollLoading || hasVoted}>
-                Vote {current.dem.name.split(' ')[0]}
-              </button>
-              <button className="poll-btn poll-rep" onClick={() => vote('rep')} disabled={pollLoading || hasVoted}>
-                Vote {current.rep.name.split(' ')[0]}
-              </button>
-            </div>
-            <div className="poll-results">
-              <div className="poll-row">
-                <span>{current.dem.name}</span>
-                <span>{demVotePct.toFixed(0)}%</span>
-              </div>
-              <div className="poll-row">
-                <span>{current.rep.name}</span>
-                <span>{repVotePct.toFixed(0)}%</span>
-              </div>
-              <div className="poll-meta">
-                {pollLoading ? 'Updating poll…' : `${pollData?.totalVotes || 0} total votes`}
-              </div>
-              {hasVoted && (
-                <div className="poll-meta">
-                  You already voted {pollData?.userVote === 'dem' ? current.dem.name : current.rep.name}.
+            <div className="poll-title">Polling results</div>
+            {hasVotedCurrent ? (
+              <div className="poll-results poll-results-visible">
+                <div className="poll-row">
+                  <span>{current.dem.name}</span>
+                  <span>{demVotePct.toFixed(0)}%</span>
                 </div>
-              )}
-              {pollError && <div className="poll-error">{pollError}</div>}
-            </div>
+                <div className="poll-row">
+                  <span>{current.rep.name}</span>
+                  <span>{repVotePct.toFixed(0)}%</span>
+                </div>
+                <div className="poll-meta">
+                  {pollLoading ? 'Updating poll…' : `${pollData?.totalVotes || 0} total votes`}
+                </div>
+                {pollError && <div className="poll-error">{pollError}</div>}
+              </div>
+            ) : (
+              <div className="poll-locked">
+                Vote for a candidate to see polling results.
+              </div>
+            )}
+          </div>
+
+          <div className="controls-card">
+            <div className="controls-title">Who would you vote for?</div>
+            <div className="controls-row"><kbd>←</kbd> vote {current.dem.name.split(' ')[0]}</div>
+            <div className="controls-row"><kbd>→</kbd> vote {current.rep.name.split(' ')[0]}</div>
+            <div className="controls-row"><kbd>Space</kbd> next matchup</div>
           </div>
         </div>
 
@@ -369,32 +397,6 @@ export default function App() {
           canVote={!hasVoted && !pollLoading}
         />
       </main>
-
-      {/* Matchup list drawer */}
-      {showList && (
-        <div className="list-drawer">
-          <div className="list-header">
-            <span>Rank</span>
-            <span>Democrat</span>
-            <span>Republican</span>
-            <span>Probability</span>
-          </div>
-          <div className="list-body">
-            {matchups.slice(0, 60).map((m, i) => (
-              <div
-                key={i}
-                className={`list-row ${i === idx ? 'list-row-active' : ''}`}
-                onClick={() => { setIdx(i); setShowList(false) }}
-              >
-                <span className="lr-rank">#{i + 1}</span>
-                <span className="lr-dem">{m.dem.name}</span>
-                <span className="lr-rep">{m.rep.name}</span>
-                <span className="lr-prob">{(m.prob * 100).toFixed(2)}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
