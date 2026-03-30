@@ -6,6 +6,8 @@ const REP_SLUG = 'republican-presidential-nominee-2028'
 const SESSION_VOTES_STORAGE_KEY = 'sessionVotes'
 const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
 const VOTE_CONFIRMATION_MS = 500
+const SWIPE_THRESHOLD_PX = 52
+const BADGE_MILESTONES = [5, 15, 30]
 
 function loadSessionVotes() {
   try {
@@ -257,6 +259,7 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
         onClick={onVote}
         type="button"
         disabled={!canVote}
+        aria-label={`Vote for ${candidate.name} (${isDem ? 'Democrat' : 'Republican'})`}
       >
         <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
         <div className="vote-sparkle" aria-hidden="true" />
@@ -316,7 +319,6 @@ export default function App() {
   const [matchups, setMatchups] = useState([])
   const [photos, setPhotos] = useState({})
   const [idx, setIdx] = useState(0)
-  const [showList, setShowList] = useState(false)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [leaderboardSort, setLeaderboardSort] = useState('winRate')
   const [leaderboardData, setLeaderboardData] = useState([])
@@ -347,8 +349,16 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showProjectHelp, setShowProjectHelp] = useState(false)
   const [voteAdvancePending, setVoteAdvancePending] = useState(false)
+  const [liveMessage, setLiveMessage] = useState('')
+  const [streak, setStreak] = useState(0)
+  const [streakFxTick, setStreakFxTick] = useState(0)
+  const [badgeMessage, setBadgeMessage] = useState('')
+  const [badgeFxTick, setBadgeFxTick] = useState(0)
+  const [modeShiftFx, setModeShiftFx] = useState(false)
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
+  const lastVotedSideRef = useRef(null)
+  const touchStartRef = useRef({ x: null, y: null })
 
   useEffect(() => {
     return () => {
@@ -423,6 +433,27 @@ export default function App() {
           },
         ]
         saveSessionVotes(nextVotes)
+        let nextStreak = 1
+        setStreak(prevStreak => {
+          nextStreak = lastVotedSideRef.current === side ? prevStreak + 1 : 1
+          return nextStreak
+        })
+        lastVotedSideRef.current = side
+        if (nextStreak >= 3) {
+          setStreakFxTick(Date.now())
+          setLiveMessage(`${nextStreak} vote streak for ${side === 'dem' ? 'Democrats' : 'Republicans'}.`)
+        } else {
+          setLiveMessage(`Vote recorded for ${side === 'dem' ? currentMatchup.dem.name : currentMatchup.rep.name}.`)
+        }
+        const unlockedMilestone = BADGE_MILESTONES.find(
+          threshold => nextVotes.length >= threshold && prev.length < threshold
+        )
+        if (unlockedMilestone) {
+          const unlockedText = `Badge unlocked: ${unlockedMilestone} votes cast`
+          setBadgeMessage(unlockedText)
+          setBadgeFxTick(Date.now())
+          setLiveMessage(unlockedText)
+        }
         return nextVotes
       })
       if (activeRecommendationType) {
@@ -641,6 +672,8 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e) => {
+      const tagName = document.activeElement?.tagName?.toLowerCase()
+      if (tagName === 'input' || tagName === 'textarea') return
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
         vote('dem')
@@ -659,7 +692,24 @@ export default function App() {
   }, [vote, next])
 
   const current = matchups[idx]
-  const currentKey = current ? `${current.dem.id}-${current.rep.id}` : null
+
+  const handleArenaTouchStart = useCallback((event) => {
+    const touch = event.changedTouches[0]
+    if (!touch) return
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY }
+  }, [])
+
+  const handleArenaTouchEnd = useCallback((event) => {
+    const touch = event.changedTouches[0]
+    const { x: startX, y: startY } = touchStartRef.current
+    if (!touch || startX === null || startY === null) return
+    const deltaX = touch.clientX - startX
+    const deltaY = touch.clientY - startY
+    touchStartRef.current = { x: null, y: null }
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD_PX || Math.abs(deltaX) <= Math.abs(deltaY)) return
+    if (deltaX > 0) vote('rep')
+    if (deltaX < 0) vote('dem')
+  }, [vote])
 
   useEffect(() => {
     if (!current) return
@@ -691,7 +741,8 @@ export default function App() {
   })
 
   return (
-    <div className="app">
+    <div className={`app ${modeShiftFx ? 'mode-shift-fx' : ''}`}>
+      <div className="sr-only" aria-live="polite" aria-atomic="true">{liveMessage}</div>
       {/* Header */}
       <header className="app-header">
         <span className="header-title">2028 Presidential Matchups</span>
@@ -701,12 +752,14 @@ export default function App() {
               type="button"
               className="header-btn settings-btn"
               aria-label="Matchup randomness settings"
+              aria-expanded={showSettings}
+              aria-controls="settings-panel"
               onClick={() => setShowSettings(s => !s)}
             >
               ⚙
             </button>
             {showSettings && (
-              <div className="settings-popover">
+              <div className="settings-popover" id="settings-panel" role="region" aria-label="Matchup randomness settings">
                 <div className="settings-title">Matchup randomness</div>
                 <input
                   type="range"
@@ -728,12 +781,14 @@ export default function App() {
               type="button"
               className="header-btn settings-btn"
               aria-label="About this project"
+              aria-expanded={showProjectHelp}
+              aria-controls="about-project-panel"
               onClick={() => setShowProjectHelp(s => !s)}
             >
               ?
             </button>
             {showProjectHelp && (
-              <div className="settings-popover help-popover">
+              <div className="settings-popover help-popover" id="about-project-panel" role="region" aria-label="About this project">
                 <div className="settings-title">About this project</div>
                 <p>
                   This app pairs Democratic and Republican 2028 nominee markets from Polymarket and
@@ -749,6 +804,7 @@ export default function App() {
           <button
             type="button"
             className="header-btn"
+            aria-pressed={showLeaderboard}
             onClick={() => setShowLeaderboard(s => !s)}
           >
             {showLeaderboard ? 'Hide leaderboard' : 'Leaderboard'}
@@ -756,6 +812,7 @@ export default function App() {
           <button
             type="button"
             className="header-btn"
+            aria-pressed={showInsights}
             onClick={() => {
               setShowInsights(open => {
                 const nextOpen = !open
@@ -836,7 +893,7 @@ export default function App() {
 
       {showLeaderboard && (
         <div className="leaderboard-modal-backdrop" onClick={() => setShowLeaderboard(false)}>
-          <section className="leaderboard-modal" onClick={(e) => e.stopPropagation()}>
+          <section className="leaderboard-modal" role="dialog" aria-modal="true" aria-label="Leaderboard" onClick={(e) => e.stopPropagation()}>
             <div className="leaderboard-modal-top">
               <h2>Leaderboard</h2>
               <button
@@ -892,7 +949,12 @@ export default function App() {
       )}
 
       {/* Main arena */}
-      <main className="arena">
+      <main
+        className="arena"
+        onTouchStart={handleArenaTouchStart}
+        onTouchEnd={handleArenaTouchEnd}
+        aria-label="Head-to-head voting arena"
+      >
         <CandidatePanel
           candidate={current.dem}
           photo={photos[current.dem.name]}
@@ -903,7 +965,7 @@ export default function App() {
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
         />
 
-        <div className="vs-column">
+        <div className="vs-column" role="region" aria-label="Matchup status">
           <div className="vs-text">VS</div>
 
           <div className="combined-prob">
@@ -932,7 +994,7 @@ export default function App() {
                 <span>{current.rep.name}</span>
                 <span>{repVotePct.toFixed(0)}%</span>
               </div>
-              <div className="poll-meta">
+              <div className="poll-meta" role="status" aria-live="polite">
                 {pollLoading ? 'Updating poll…' : `${pollData?.totalVotes || 0} total votes`}
               </div>
               {pollError && <div className="poll-error">{pollError}</div>}
@@ -943,8 +1005,18 @@ export default function App() {
             <div className="controls-title">Who would you vote for?</div>
             <div className="controls-row"><kbd>←</kbd> vote {current.dem.name.split(' ')[0]}</div>
             <div className="controls-row"><kbd>→</kbd> vote {current.rep.name.split(' ')[0]}</div>
+            <div className="controls-row"><kbd>Swipe</kbd> left/right to vote</div>
             <div className="controls-row"><kbd>Space</kbd> next matchup</div>
           </div>
+
+          <div className={`streak-badge ${streakFxTick ? 'streak-fx' : ''}`} key={`streak-${streakFxTick}`}>
+            Current streak: {streak}
+          </div>
+          {badgeMessage && (
+            <div className={`unlock-badge ${badgeFxTick ? 'unlock-fx' : ''}`} key={`badge-${badgeFxTick}`}>
+              {badgeMessage}
+            </div>
+          )}
         </div>
 
         <CandidatePanel
