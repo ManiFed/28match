@@ -401,6 +401,7 @@ export default function App() {
         saveSessionVotes(nextVotes)
         return nextVotes
       })
+      setIdx(i => Math.min(matchups.length - 1, i + 1))
     } catch (err) {
       setPollError(err.message)
     } finally {
