@@ -251,18 +251,54 @@ function classifyVote(vote) {
 
 function getVoteProfile(votes) {
   if (!votes.length) {
-    return { preferredSide: 'dem', preferredTrait: 'underdog' }
+    return {
+      preferredSide: 'dem',
+      preferredTrait: 'underdog',
+      topTags: ['frontrunner-friendly', 'outsider-curious'],
+    }
   }
   const counts = votes.reduce((acc, vote) => {
     acc.side[vote.side] = (acc.side[vote.side] || 0) + 1
     const trait = classifyVote(vote)
     acc.trait[trait] = (acc.trait[trait] || 0) + 1
+    const tags = vote?.pickedTags || []
+    tags.forEach((tag) => {
+      acc.tags[tag] = (acc.tags[tag] || 0) + 1
+    })
     return acc
-  }, { side: { dem: 0, rep: 0 }, trait: { underdog: 0, favorite: 0 } })
+  }, { side: { dem: 0, rep: 0 }, trait: { underdog: 0, favorite: 0 }, tags: {} })
 
   const preferredSide = counts.side.dem >= counts.side.rep ? 'dem' : 'rep'
   const preferredTrait = counts.trait.underdog >= counts.trait.favorite ? 'underdog' : 'favorite'
-  return { preferredSide, preferredTrait }
+  const topTags = Object.entries(counts.tags)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([tag]) => tag)
+  return { preferredSide, preferredTrait, topTags }
+}
+
+function getCandidateTags(candidate, side, allCandidates = []) {
+  const normalized = candidate.name.toLowerCase()
+  const rank = Math.max(1, allCandidates.findIndex(c => c.id === candidate.id) + 1)
+  const topBand = Math.max(2, Math.ceil(allCandidates.length * 0.2))
+  const longshotBand = Math.max(2, Math.ceil(allCandidates.length * 0.65))
+  const tags = new Set([
+    side === 'dem' ? 'left-lane' : 'right-lane',
+    side === 'dem' ? 'blue-lane' : 'red-lane',
+    rank <= topBand ? 'frontrunner' : 'outsider',
+    candidate.prob >= 0.2 ? 'high-odds' : 'low-odds',
+    rank >= longshotBand ? 'longshot' : 'viable',
+  ])
+
+  if (/\b(governor|newsom|whitmer|desantis|haley|abbott)\b/.test(normalized)) tags.add('governor-track')
+  if (/\b(senator|rubio|vance|warren|booker|klobuchar)\b/.test(normalized)) tags.add('senate-track')
+  if (/\b(trump|biden|harris)\b/.test(normalized)) tags.add('national-brand')
+  if (/\b(ocasio-cortez|aoc|sanders)\b/.test(normalized)) tags.add('movement-left')
+  if (/\b(desantis|vance|vivek|hawley)\b/.test(normalized)) tags.add('movement-right')
+  if (/\b(newsom|haley|youngkin)\b/.test(normalized)) tags.add('establishment')
+  if (/\b(gabbard|kennedy|ramaswamy)\b/.test(normalized)) tags.add('anti-establishment')
+
+  return [...tags]
 }
 
 function fallbackAvatarUrl(name) {
@@ -298,7 +334,7 @@ function findNextUnvotedIndex(matchups, votedKeys, startIndex = 0, direction = 1
   return -1
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick, predictionTick }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick, predictionActive }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   const clickTimerRef = useRef(null)
@@ -334,16 +370,17 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
   return (
     <div className="candidate-shell">
       <button
-        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''} ${predictionTick ? 'prediction-pulse' : ''}`}
-        onClick={onVote}
+        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''}`}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
         type="button"
         disabled={!canVote}
         aria-label={`Vote for ${candidate.name} (${isDem ? 'Democrat' : 'Republican'})`}
       >
         <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
         <div className="vote-sparkle" aria-hidden="true" />
-        <div className="photo-wrapper" key={animKey}>
-          <img src={imageUrl} alt={candidate.name} className="candidate-photo" />
+        <div className={`photo-wrapper ${predictionActive ? 'prediction-photo-ring' : ''}`} key={animKey}>
+          <img src={imageUrl} alt={candidate.name} className={`candidate-photo ${predictionActive ? 'prediction-photo-pulse' : ''}`} />
         </div>
         <div className="candidate-info" key={`info-${animKey}`}>
           <h2 className="candidate-name">
@@ -432,11 +469,12 @@ export default function App() {
   const [showProjectHelp, setShowProjectHelp] = useState(false)
   const [voteAdvancePending, setVoteAdvancePending] = useState(false)
   const [liveMessage, setLiveMessage] = useState('')
-  const [predictionFx, setPredictionFx] = useState({ side: null, tick: 0 })
+  const [predictionFx, setPredictionFx] = useState({ side: null, key: null })
   const [modeShiftFx, setModeShiftFx] = useState(false)
   const [bootTimedOut, setBootTimedOut] = useState(false)
   const [startupNotice, setStartupNotice] = useState('')
   const [loading, setLoading] = useState(true)
+  const [showStats, setShowStats] = useState(false)
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
   const touchStartRef = useRef({ x: null, y: null })
@@ -456,14 +494,6 @@ export default function App() {
     }, 500)
     return () => window.clearTimeout(timer)
   }, [voteFx.side, voteFx.tick])
-
-  useEffect(() => {
-    if (!predictionFx.side) return
-    const timer = window.setTimeout(() => {
-      setPredictionFx(prev => ({ ...prev, side: null }))
-    }, 1200)
-    return () => window.clearTimeout(timer)
-  }, [predictionFx.side, predictionFx.tick])
 
   useEffect(() => {
     saveRecommendationEngagement(recommendationEngagement)
@@ -535,6 +565,12 @@ export default function App() {
       setVoteFx({ side, tick: Date.now(), strength })
       setPollData(data)
       setSessionVotes(prev => {
+        const pickedCandidate = side === 'dem' ? currentMatchup.dem : currentMatchup.rep
+        const pickedTags = getCandidateTags(
+          pickedCandidate,
+          side,
+          side === 'dem' ? demCandidates : repCandidates,
+        )
         const nextVotes = [
           ...prev,
           {
@@ -544,6 +580,7 @@ export default function App() {
             repName: currentMatchup.rep.name,
             demProb: currentMatchup.dem.prob,
             repProb: currentMatchup.rep.prob,
+            pickedTags,
             createdAt: new Date().toISOString(),
           },
         ]
@@ -573,6 +610,7 @@ export default function App() {
         }
         return nextVotes
       })
+      setPredictionFx(prev => (prev.key === key ? { side: null, key: null } : prev))
       if (activeRecommendationType) {
         setRecommendationEngagement(prev => ({
           ...prev,
@@ -600,7 +638,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [activeIdx, activeRecommendationType, matchups, voteAdvancePending, votedKeys])
+  }, [activeIdx, activeRecommendationType, demCandidates, matchups, repCandidates, voteAdvancePending, votedKeys])
 
   const predictVote = useCallback(() => {
     if (!sessionVotes.length) {
@@ -610,11 +648,27 @@ export default function App() {
     const activeMatchup = matchups[activeIdx] ?? matchups[0]
     if (!activeMatchup) return
     const profile = getVoteProfile(sessionVotes)
-    setPredictionFx({ side: profile.preferredSide, tick: Date.now() })
+    const demTags = getCandidateTags(activeMatchup.dem, 'dem', demCandidates)
+    const repTags = getCandidateTags(activeMatchup.rep, 'rep', repCandidates)
+    const demTagScore = demTags.reduce((acc, tag) => acc + (profile.topTags.includes(tag) ? 1 : 0), 0)
+    const repTagScore = repTags.reduce((acc, tag) => acc + (profile.topTags.includes(tag) ? 1 : 0), 0)
+    const favoredByTrait = profile.preferredTrait === 'underdog'
+      ? activeMatchup.dem.prob <= activeMatchup.rep.prob
+        ? 'dem'
+        : 'rep'
+      : activeMatchup.dem.prob >= activeMatchup.rep.prob
+        ? 'dem'
+        : 'rep'
+    const preferredSide = demTagScore === repTagScore
+      ? favoredByTrait
+      : demTagScore > repTagScore
+        ? 'dem'
+        : 'rep'
+    setPredictionFx({ side: preferredSide, key: `${activeMatchup.dem.id}-${activeMatchup.rep.id}` })
     setLiveMessage(
-      `Predicted pick: ${profile.preferredSide === 'dem' ? activeMatchup.dem.name : activeMatchup.rep.name}.`
+      `Predicted pick: ${preferredSide === 'dem' ? activeMatchup.dem.name : activeMatchup.rep.name}.`
     )
-  }, [activeIdx, matchups, sessionVotes])
+  }, [activeIdx, demCandidates, matchups, repCandidates, sessionVotes])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -941,6 +995,7 @@ export default function App() {
   const repSessionPct = totalSessionVotes ? (sessionVoteTotals.rep / totalSessionVotes) * 100 : 50
   const underdogPct = totalSessionVotes ? (sessionVoteTotals.underdog / totalSessionVotes) * 100 : 50
   const frontrunnerPct = totalSessionVotes ? (sessionVoteTotals.frontrunner / totalSessionVotes) * 100 : 50
+  const voteProfile = getVoteProfile(sessionVotes)
   const sortedLeaderboard = [...leaderboardData].sort((a, b) => {
     if (leaderboardSort === 'votes') {
       return b.votes - a.votes || b.winRate - a.winRate || a.name.localeCompare(b.name)
@@ -1031,8 +1086,25 @@ export default function App() {
           >
             {showInsights ? 'Hide insights' : 'Insights'}
           </button>
-          <div className="header-vote-stats" aria-label="Your vote distribution">
-            <span className="header-sub">Your stats</span>
+          <button
+            type="button"
+            className="header-btn"
+            aria-pressed={showStats}
+            onClick={() => setShowStats(s => !s)}
+          >
+            {showStats ? 'Hide stats' : 'Stats'}
+          </button>
+        </div>
+      </header>
+      {startupNotice && (
+        <div className="startup-notice" role="status" aria-live="polite">
+          {startupNotice}
+        </div>
+      )}
+
+      {showStats && (
+        <section className="stats-drawer" aria-label="Your vote distribution and classes">
+          <div className="header-vote-stats">
             <div className="vote-split-row">
               <span className="vote-split-label">Dem vs Rep</span>
               <div className="vote-split-bar" role="img" aria-label={`${demSessionPct.toFixed(0)} percent Democrat and ${repSessionPct.toFixed(0)} percent Republican votes`}>
@@ -1047,13 +1119,16 @@ export default function App() {
                 <div className="vote-segment vote-segment-frontrunner" style={{ width: `${frontrunnerPct}%` }} />
               </div>
             </div>
+            <div className="stats-tags">
+              <span className="stats-tags-label">Your classes/tags</span>
+              <div className="stats-tag-list">
+                {(voteProfile.topTags.length ? voteProfile.topTags : ['new-user']).map(tag => (
+                  <span key={tag} className="stats-tag-chip">{tag.replace(/-/g, ' ')}</span>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
-      </header>
-      {startupNotice && (
-        <div className="startup-notice" role="status" aria-live="polite">
-          {startupNotice}
-        </div>
+        </section>
       )}
 
       {showInsights && (
@@ -1196,7 +1271,7 @@ export default function App() {
           onVote={(strength) => { vote('dem', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
-          predictionTick={predictionFx.side === 'dem' ? predictionFx.tick : 0}
+          predictionActive={predictionFx.side === 'dem' && predictionFx.key === currentMatchupKey && !alreadyVotedCurrent}
           flashStrength={voteFx.side === 'dem' ? voteFx.strength : 'normal'}
         />
 
@@ -1257,7 +1332,7 @@ export default function App() {
           onVote={(strength) => { vote('rep', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
-          predictionTick={predictionFx.side === 'rep' ? predictionFx.tick : 0}
+          predictionActive={predictionFx.side === 'rep' && predictionFx.key === currentMatchupKey && !alreadyVotedCurrent}
           flashStrength={voteFx.side === 'rep' ? voteFx.strength : 'normal'}
         />
       </main>
