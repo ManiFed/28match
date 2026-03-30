@@ -551,7 +551,6 @@ export default function App() {
 
   const current = matchups[idx]
   const currentKey = current ? `${current.dem.id}-${current.rep.id}` : null
-  const hasVotedCurrent = !!(currentKey && pollData?.hasVoted)
 
   useEffect(() => {
     if (!current) return
@@ -568,8 +567,6 @@ export default function App() {
   if (!matchups.length) return <ErrorScreen message="No matchups found in market data." />
 
   const total = matchups.length
-  const hasVoted = Boolean(pollData?.hasVoted)
-  const selectedSide = pollData?.userVote || null
   const demVotePct = pollData?.totalVotes ? (pollData.demVotes / pollData.totalVotes) * 100 : 0
   const repVotePct = pollData?.totalVotes ? (pollData.repVotes / pollData.totalVotes) * 100 : 0
   const sortedLeaderboard = [...leaderboardData].sort((a, b) => {
@@ -764,26 +761,20 @@ export default function App() {
 
           <div className="poll-card">
             <div className="poll-title">Polling results</div>
-            {hasVotedCurrent ? (
-              <div className="poll-results poll-results-visible">
-                <div className="poll-row">
-                  <span>{current.dem.name}</span>
-                  <span>{demVotePct.toFixed(0)}%</span>
-                </div>
-                <div className="poll-row">
-                  <span>{current.rep.name}</span>
-                  <span>{repVotePct.toFixed(0)}%</span>
-                </div>
-                <div className="poll-meta">
-                  {pollLoading ? 'Updating poll…' : `${pollData?.totalVotes || 0} total votes`}
-                </div>
-                {pollError && <div className="poll-error">{pollError}</div>}
+            <div className="poll-results poll-results-visible">
+              <div className="poll-row">
+                <span>{current.dem.name}</span>
+                <span>{demVotePct.toFixed(0)}%</span>
               </div>
-            ) : (
-              <div className="poll-locked">
-                Vote for a candidate to see polling results.
+              <div className="poll-row">
+                <span>{current.rep.name}</span>
+                <span>{repVotePct.toFixed(0)}%</span>
               </div>
-            )}
+              <div className="poll-meta">
+                {pollLoading ? 'Updating poll…' : `${pollData?.totalVotes || 0} total votes`}
+              </div>
+              {pollError && <div className="poll-error">{pollError}</div>}
+            </div>
           </div>
 
           <div className="controls-card">
