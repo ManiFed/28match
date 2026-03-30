@@ -908,6 +908,13 @@
 
 .loading-text { color: #d0d0d0; font-size: 0.95rem; }
 
+.loading-help {
+  max-width: 440px;
+  color: #f0c96b;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
 .error-icon {
   width: 52px;
   height: 52px;

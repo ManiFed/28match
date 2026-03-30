@@ -10,6 +10,7 @@ const SWIPE_THRESHOLD_PX = 52
 const BADGE_MILESTONES = [5, 15, 30]
 const REQUEST_TIMEOUT_MS = 12000
 const INITIAL_RANDOMNESS = 0.2
+const APP_BOOT_TIMEOUT_MS = 15000
 const FALLBACK_DEMS = [
   { id: 'fallback-dem-1', name: 'Gavin Newsom', prob: 0.23 },
   { id: 'fallback-dem-2', name: 'Gretchen Whitmer', prob: 0.19 },
@@ -338,6 +339,20 @@ function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, fla
   )
 }
 
+function LoadingScreen({ timedOut }) {
+  return (
+    <div className="centered-screen">
+      <div className="spinner" />
+      <p className="loading-text">Loading Polymarket data…</p>
+      {timedOut && (
+        <p className="loading-help">
+          This is taking longer than expected. If the page stays blank, refresh and make sure the API server is running.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ErrorScreen({ message }) {
   return (
     <div className="centered-screen">
@@ -393,7 +408,8 @@ export default function App() {
   const [badgeFxTick, setBadgeFxTick] = useState(0)
   const [modeShiftFx, setModeShiftFx] = useState(false)
   const [showLegendPopup, setShowLegendPopup] = useState(false)
-  const [startupNotice, setStartupNotice] = useState('Loading live market data…')
+  const [bootTimedOut, setBootTimedOut] = useState(false)
+  const [startupNotice, setStartupNotice] = useState('')
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
   const lastVotedSideRef = useRef(null)
@@ -627,6 +643,13 @@ export default function App() {
   }, [buildContrastingRecommendations, recommendationEngagement, sessionVotes])
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setBootTimedOut(true)
+    }, APP_BOOT_TIMEOUT_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
     ;(async () => {
       try {
         const [demsResponse, repsResponse] = await Promise.all([
@@ -663,6 +686,9 @@ export default function App() {
         setMatchups(buildMatchups(FALLBACK_DEMS, FALLBACK_REPS, randomness))
         setStartupNotice('Could not reach live market data. Showing fallback candidates so the page still works.')
         setError(null)
+      } finally {
+        setLoading(false)
+        setBootTimedOut(false)
       }
     })()
   }, [])
@@ -839,6 +865,7 @@ export default function App() {
     }
   }, [allMatchupsCompleted, idx, matchups, votedKeys])
 
+  if (loading) return <LoadingScreen timedOut={bootTimedOut} />
   if (error) return <ErrorScreen message={error} />
   if (!matchups.length) return <ErrorScreen message="No matchups found in market data." />
 
