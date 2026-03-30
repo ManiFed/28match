@@ -3,6 +3,15 @@ import './App.css'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
+const VOTER_ID_STORAGE_KEY = 'voterId'
+
+function getOrCreateVoterId() {
+  const existing = window.localStorage.getItem(VOTER_ID_STORAGE_KEY)
+  if (existing) return existing
+  const created = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  window.localStorage.setItem(VOTER_ID_STORAGE_KEY, created)
+  return created
+}
 
 async function fetchCandidates(slug, partyLabel) {
   const res = await fetch(`/api/polymarket/events?slug=${slug}`)
@@ -153,6 +162,36 @@ function fallbackAvatarUrl(name) {
   return `https://api.dicebear.com/9.x/initials/svg?${params.toString()}`
 }
 
+function generateSessionInsights(votes) {
+  if (!votes.length) return ''
+
+  const totalVotes = votes.length
+  const demVotes = votes.filter(vote => vote.side === 'dem').length
+  const repVotes = totalVotes - demVotes
+
+  const partyLean = demVotes === repVotes
+    ? 'an even split between Democrats and Republicans'
+    : demVotes > repVotes
+      ? `a Democratic lean (${Math.round((demVotes / totalVotes) * 100)}% of your votes)`
+      : `a Republican lean (${Math.round((repVotes / totalVotes) * 100)}% of your votes)`
+
+  const candidateCounts = votes.reduce((acc, vote) => {
+    const pickedName = vote.side === 'dem' ? vote.demName : vote.repName
+    acc[pickedName] = (acc[pickedName] || 0) + 1
+    return acc
+  }, {})
+  const topCandidate = Object.entries(candidateCounts).sort((a, b) => b[1] - a[1])[0]
+
+  const underdogVotes = votes.filter(vote => {
+    const demProb = Number(vote.demProb) || 0
+    const repProb = Number(vote.repProb) || 0
+    return (vote.side === 'dem' && demProb < repProb) || (vote.side === 'rep' && repProb < demProb)
+  }).length
+  const upsetRate = Math.round((underdogVotes / totalVotes) * 100)
+
+  return `Based on ${totalVotes} votes in this browser session, you show ${partyLean}. Your most selected candidate so far is ${topCandidate[0]} (${topCandidate[1]} picks). You chose the lower-probability side in ${upsetRate}% of matchups, suggesting ${upsetRate >= 45 ? 'a contrarian streak' : 'a tendency to align with market favorites'}.`
+}
+
 function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
@@ -218,6 +257,7 @@ export default function App() {
   const [pollLoading, setPollLoading] = useState(false)
   const [pollError, setPollError] = useState(null)
   const [votedKeys, setVotedKeys] = useState({})
+  const [sessionVotes, setSessionVotes] = useState(() => loadSessionVotes())
   const [showInsights, setShowInsights] = useState(false)
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsError, setInsightsError] = useState(null)
@@ -227,13 +267,18 @@ export default function App() {
   const [repCandidates, setRepCandidates] = useState([])
   const [randomness, setRandomness] = useState(0.2)
   const [showSettings, setShowSettings] = useState(false)
+  const [voterId] = useState(() => getOrCreateVoterId())
 
   const fetchPoll = useCallback(async (matchup) => {
     const key = `${matchup.dem.id}-${matchup.rep.id}`
     setPollLoading(true)
     setPollError(null)
     try {
-      const res = await fetch(`/api/poll/${encodeURIComponent(key)}`)
+      const res = await fetch(`/api/poll/${encodeURIComponent(key)}`, {
+        headers: {
+          'x-voter-id': voterId,
+        },
+      })
       if (!res.ok) throw new Error(`Poll API returned ${res.status}`)
       const data = await res.json()
       setPollData(data)
@@ -242,7 +287,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [])
+  }, [voterId])
 
   const vote = useCallback(async (side) => {
     const currentMatchup = matchups[idx]
@@ -258,6 +303,7 @@ export default function App() {
         body: JSON.stringify({
           key,
           side,
+          voterId,
           dem: { id: currentMatchup.dem.id, name: currentMatchup.dem.name },
           rep: { id: currentMatchup.rep.id, name: currentMatchup.rep.name },
         }),
@@ -267,12 +313,28 @@ export default function App() {
       setVoteFx({ side, tick: Date.now() })
       setPollData(data)
       setVotedKeys(prev => ({ ...prev, [key]: true }))
+      setSessionVotes(prev => {
+        const nextVotes = [
+          ...prev,
+          {
+            key,
+            side,
+            demName: currentMatchup.dem.name,
+            repName: currentMatchup.rep.name,
+            demProb: currentMatchup.dem.prob,
+            repProb: currentMatchup.rep.prob,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+        saveSessionVotes(nextVotes)
+        return nextVotes
+      })
     } catch (err) {
       setPollError(err.message)
     } finally {
       setPollLoading(false)
     }
-  }, [idx, matchups])
+  }, [idx, matchups, voterId])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -294,17 +356,14 @@ export default function App() {
     setInsightsLoading(true)
     setInsightsError(null)
     try {
-      const res = await fetch('/api/insights', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || `Insights API returned ${res.status}`)
-      setInsightsSummary(data.summary || '')
+      setInsightsSummary(generateSessionInsights(sessionVotes))
     } catch (err) {
       setInsightsError(err.message)
       setInsightsSummary('')
     } finally {
       setInsightsLoading(false)
     }
-  }, [])
+  }, [sessionVotes])
 
   useEffect(() => {
     ;(async () => {
@@ -366,18 +425,12 @@ export default function App() {
 
   const current = matchups[idx]
   const currentKey = current ? `${current.dem.id}-${current.rep.id}` : null
-  const hasVotedCurrent = !!(currentKey && votedKeys[currentKey])
+  const hasVotedCurrent = !!(currentKey && pollData?.hasVoted)
 
   useEffect(() => {
     if (!current) return
-    if (!hasVotedCurrent) {
-      setPollData(null)
-      setPollError(null)
-      setPollLoading(false)
-      return
-    }
     fetchPoll(current)
-  }, [current, hasVotedCurrent, fetchPoll])
+  }, [current, fetchPoll])
 
   useEffect(() => {
     if (!showLeaderboard) return
@@ -505,8 +558,8 @@ export default function App() {
           photo={photos[current.dem.name]}
           party="dem"
           animKey={`dem-${idx}`}
-          onVote={() => { if (!hasVoted) vote('dem') }}
-          canVote={!hasVoted && !pollLoading}
+          onVote={() => { vote('dem') }}
+          canVote={!pollLoading}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
         />
 
@@ -565,8 +618,8 @@ export default function App() {
           photo={photos[current.rep.name]}
           party="rep"
           animKey={`rep-${idx}`}
-          onVote={() => { if (!hasVoted) vote('rep') }}
-          canVote={!hasVoted && !pollLoading}
+          onVote={() => { vote('rep') }}
+          canVote={!pollLoading}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
         />
       </main>
