@@ -42,6 +42,45 @@
   position: relative;
 }
 
+.header-vote-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 250px;
+}
+
+.vote-split-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.vote-split-label {
+  min-width: 112px;
+  font-size: 0.65rem;
+  color: #8d8d8d;
+  text-align: right;
+}
+
+.vote-split-bar {
+  display: flex;
+  flex: 1;
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid #333;
+  background: #1a1a1a;
+}
+
+.vote-segment {
+  height: 100%;
+}
+
+.vote-segment-dem { background: #2d73ff; }
+.vote-segment-rep { background: #f24343; }
+.vote-segment-underdog { background: #fff; }
+.vote-segment-frontrunner { background: #000; }
+
 .header-btn {
   border: 1px solid #3a3a3a;
   background: #111;
@@ -907,7 +946,12 @@
 
   .candidate-name { font-size: 1.1rem; }
 
-  .header-sub { display: none; }
+  .header-vote-stats { min-width: 180px; }
+  .vote-split-label {
+    min-width: 84px;
+    font-size: 0.6rem;
+  }
+  .header-sub { display: block; font-size: 0.62rem; }
   .leaderboard-header,
   .leaderboard-row {
     grid-template-columns: 52px 1fr 84px 64px 72px;
