@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import './App.css'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
@@ -130,19 +130,40 @@ async function fetchCandidates(slug, partyLabel) {
 }
 
 async function fetchWikiPhoto(name) {
+  const fetchImageFromParams = async (params) => {
+    const res = await fetch(`https://en.wikipedia.org/w/api.php?${params}`)
+    if (!res.ok) return null
+    const data = await res.json()
+    const pages = Object.values(data?.query?.pages || {})
+    const page = pages.find(p => !p?.missing && !p?.pageprops?.disambiguation && p?.thumbnail?.source)
+    return page?.thumbnail?.source ?? null
+  }
+
   try {
-    const params = new URLSearchParams({
+    const exactMatchParams = new URLSearchParams({
       action: 'query',
       titles: name,
-      prop: 'pageimages',
+      redirects: '1',
+      prop: 'pageimages|pageprops',
       pithumbsize: '500',
       format: 'json',
       origin: '*',
     })
-    const res = await fetch(`https://en.wikipedia.org/w/api.php?${params}`)
-    const data = await res.json()
-    const pages = Object.values(data?.query?.pages || {})
-    return pages[0]?.thumbnail?.source ?? null
+    const exactImage = await fetchImageFromParams(exactMatchParams)
+    if (exactImage) return exactImage
+
+    const searchParams = new URLSearchParams({
+      action: 'query',
+      generator: 'search',
+      gsrsearch: `${name} politician`,
+      gsrlimit: '5',
+      gsrenablerewrites: '1',
+      prop: 'pageimages|pageprops',
+      pithumbsize: '500',
+      format: 'json',
+      origin: '*',
+    })
+    return await fetchImageFromParams(searchParams)
   } catch {
     return null
   }
@@ -291,6 +312,7 @@ export default function App() {
   const [randomness, setRandomness] = useState(0.2)
   const [showSettings, setShowSettings] = useState(false)
   const [voterId] = useState(() => getOrCreateVoterId())
+  const requestedPhotosRef = useRef(new Set())
 
   useEffect(() => {
     if (!voteFx.side) return
@@ -407,15 +429,19 @@ export default function App() {
         setRepCandidates(reps)
         setMatchups(buildMatchups(dems, reps, randomness))
 
-        // Prefetch photos for top candidates on each side
+        // Prefetch photos for candidates most likely to appear first.
         const topNames = [
-          ...dems.slice(0, 10).map(c => c.name),
-          ...reps.slice(0, 10).map(c => c.name),
+          ...dems.slice(0, 25).map(c => c.name),
+          ...reps.slice(0, 25).map(c => c.name),
         ]
-        const results = await Promise.all(
-          topNames.map(name => fetchWikiPhoto(name).then(url => [name, url]))
-        )
-        setPhotos(Object.fromEntries(results.filter(([, url]) => url)))
+        topNames.forEach(name => requestedPhotosRef.current.add(name))
+        Promise.all(topNames.map(name => fetchWikiPhoto(name).then(url => [name, url])))
+          .then((results) => {
+            setPhotos(prev => ({
+              ...prev,
+              ...Object.fromEntries(results.filter(([, url]) => url)),
+            }))
+          })
       } catch (err) {
         setError(err.message)
       } finally {
@@ -429,6 +455,34 @@ export default function App() {
     setMatchups(buildMatchups(demCandidates, repCandidates, randomness))
     setIdx(0)
   }, [demCandidates, repCandidates, randomness])
+
+  useEffect(() => {
+    const activeMatchup = matchups[idx]
+    const namesToLoad = []
+    if (
+      activeMatchup?.dem?.name &&
+      !photos[activeMatchup.dem.name] &&
+      !requestedPhotosRef.current.has(activeMatchup.dem.name)
+    ) {
+      namesToLoad.push(activeMatchup.dem.name)
+    }
+    if (
+      activeMatchup?.rep?.name &&
+      !photos[activeMatchup.rep.name] &&
+      !requestedPhotosRef.current.has(activeMatchup.rep.name)
+    ) {
+      namesToLoad.push(activeMatchup.rep.name)
+    }
+    if (!namesToLoad.length) return
+
+    namesToLoad.forEach(name => requestedPhotosRef.current.add(name))
+    Promise.all(namesToLoad.map(name => fetchWikiPhoto(name).then(url => [name, url])))
+      .then((results) => {
+        const found = Object.fromEntries(results.filter(([, url]) => url))
+        if (!Object.keys(found).length) return
+        setPhotos(prev => ({ ...prev, ...found }))
+      })
+  }, [idx, matchups, photos])
 
   const prev = useCallback(() => {
     setIdx(i => (i === 0 ? Math.max(0, matchups.length - 1) : i - 1))
