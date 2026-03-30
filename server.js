@@ -193,7 +193,7 @@ app.post('/api/insights', async (req, res) => {
     })
   }
 
-  const { votes, format = 'text', recommendationFeedback = null } = req.body || {}
+  const { votes, skips = [], format = 'text', recommendationFeedback = null } = req.body || {}
   if (!Array.isArray(votes) || votes.length === 0) {
     return res.status(400).json({
       error: 'Provide a non-empty votes array to generate insights.',
@@ -208,6 +208,16 @@ app.post('/api/insights', async (req, res) => {
     repProb: Number(vote?.repProb) || 0,
     createdAt: vote?.createdAt,
   }))
+  const trimmedSkips = Array.isArray(skips)
+    ? skips.slice(-200).map((skip) => ({
+        key: skip?.key,
+        demName: skip?.demName,
+        repName: skip?.repName,
+        predictedSide: skip?.predictedSide || null,
+        reason: skip?.reason,
+        createdAt: skip?.createdAt,
+      }))
+    : []
 
   const model = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
   const systemPrompt = [
@@ -219,9 +229,13 @@ app.post('/api/insights', async (req, res) => {
 
   const userPrompt = [
     `These are a single user session's matchup votes (JSON): ${JSON.stringify(trimmedVotes)}`,
+    trimmedSkips.length
+      ? `These are skipped matchups in this session (JSON): ${JSON.stringify(trimmedSkips)}`
+      : null,
     recommendationFeedback
       ? `Recommendation engagement feedback (JSON): ${JSON.stringify(recommendationFeedback)}`
       : null,
+    'Treat a skipped matchup as weak evidence the user disliked both candidates, especially when a prediction was shown and then skipped.',
     'When writing summary_text, include at least one real-world political factor beyond app voting data (for example public profile, governing record, coalition fit, media narrative, or current national issues).',
     'Do not invent precise facts. If uncertain, use cautious phrasing.',
     'Return JSON with exactly these fields:',

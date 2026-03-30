@@ -4,6 +4,7 @@ import './App.css'
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
 const SESSION_VOTES_STORAGE_KEY = 'sessionVotes'
+const SESSION_SKIPS_STORAGE_KEY = 'sessionSkips'
 const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
 const VOTE_CONFIRMATION_MS = 500
 const STRONG_VOTE_CONFIRMATION_MS = 1000
@@ -60,17 +61,37 @@ function saveSessionVotes(votes) {
   }
 }
 
+function loadSessionSkips() {
+  try {
+    const raw = window.localStorage.getItem(SESSION_SKIPS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveSessionSkips(skips) {
+  try {
+    window.localStorage.setItem(SESSION_SKIPS_STORAGE_KEY, JSON.stringify(skips))
+  } catch {
+    // Ignore storage failures (private mode/full quota).
+  }
+}
+
 function loadRecommendationEngagement() {
   try {
     const raw = window.localStorage.getItem(RECOMMENDATION_ENGAGEMENT_KEY)
-    if (!raw) return { exposures: {}, votes: {} }
+    if (!raw) return { exposures: {}, votes: {}, skips: {} }
     const parsed = JSON.parse(raw)
     return {
       exposures: parsed?.exposures || {},
       votes: parsed?.votes || {},
+      skips: parsed?.skips || {},
     }
   } catch {
-    return { exposures: {}, votes: {} }
+    return { exposures: {}, votes: {}, skips: {} }
   }
 }
 
@@ -506,6 +527,7 @@ export default function App() {
   const [pollLoading, setPollLoading] = useState(false)
   const [pollError, setPollError] = useState(null)
   const [sessionVotes, setSessionVotes] = useState(() => loadSessionVotes())
+  const [sessionSkips, setSessionSkips] = useState(() => loadSessionSkips())
   const [showInsights, setShowInsights] = useState(false)
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsError, setInsightsError] = useState(null)
@@ -860,6 +882,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           votes: sessionVotes,
+          skips: sessionSkips,
           format: 'both',
           recommendationFeedback: recommendationEngagement,
         }),
@@ -884,7 +907,7 @@ export default function App() {
     } finally {
       setInsightsLoading(false)
     }
-  }, [buildContrastingRecommendations, recommendationEngagement, sessionVotes])
+  }, [buildContrastingRecommendations, recommendationEngagement, sessionSkips, sessionVotes])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -971,19 +994,60 @@ export default function App() {
       })
   }, [activeIdx, matchups, photos])
 
+  const current = matchups[activeIdx] ?? matchups[0]
+  const currentMatchupKey = current ? `${current.dem.id}-${current.rep.id}` : null
+  const alreadyVotedCurrent = currentMatchupKey ? votedKeys.has(currentMatchupKey) : false
+
+  const recordSkip = useCallback((direction) => {
+    if (!current || !currentMatchupKey || alreadyVotedCurrent) return
+    const predictionForCurrent = predictionFx?.key === currentMatchupKey ? predictionFx.side : null
+    const skipType = predictionForCurrent ? 'predicted-skip' : 'manual-skip'
+
+    setSessionSkips(prevSkips => {
+      const nextSkips = [
+        ...prevSkips,
+        {
+          key: currentMatchupKey,
+          demName: current.dem.name,
+          repName: current.rep.name,
+          predictedSide: predictionForCurrent,
+          reason: direction,
+          createdAt: new Date().toISOString(),
+        },
+      ]
+      saveSessionSkips(nextSkips)
+      return nextSkips
+    })
+
+    setRecommendationEngagement(prevEngagement => ({
+      ...prevEngagement,
+      skips: {
+        ...prevEngagement.skips,
+        [skipType]: (prevEngagement.skips?.[skipType] || 0) + 1,
+      },
+    }))
+
+    if (predictionForCurrent) {
+      setLiveMessage(`Skip noted for ${current.dem.name} vs ${current.rep.name}.`)
+    }
+    setPredictionFx(prevFx => (prevFx.key === currentMatchupKey ? { side: null, key: null } : prevFx))
+  }, [alreadyVotedCurrent, current, currentMatchupKey, predictionFx])
+
   const prev = useCallback(() => {
+    recordSkip('prev')
     setIdx(i => {
       const nextIdx = findNextUnvotedIndex(matchups, votedKeys, activeIdx - 1, -1)
       return nextIdx === -1 ? i : nextIdx
     })
-  }, [activeIdx, matchups, votedKeys])
+  }, [activeIdx, matchups, recordSkip, votedKeys])
 
   const next = useCallback(() => {
+    recordSkip('next')
     setIdx(i => {
       const nextIdx = findNextUnvotedIndex(matchups, votedKeys, activeIdx + 1, 1)
       return nextIdx === -1 ? i : nextIdx
     })
-  }, [activeIdx, matchups, votedKeys])
+  }, [activeIdx, matchups, recordSkip, votedKeys])
 
   const queueRecommendedMatchup = useCallback((recommended) => {
     const targetKey = `${recommended.dem.id}-${recommended.rep.id}`
