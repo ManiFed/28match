@@ -455,13 +455,26 @@ export default function App() {
   const votedKeys = useMemo(() => new Set(sessionVotes.map(vote => vote.key)), [sessionVotes])
   const allMatchupsCompleted = matchups.length > 0 && votedKeys.size >= matchups.length
 
+  const activeIdx = useMemo(() => {
+    if (!matchups.length) return -1
+    const normalizedIdx = ((idx % matchups.length) + matchups.length) % matchups.length
+    const currentMatchup = matchups[normalizedIdx]
+    const currentKey = currentMatchup ? `${currentMatchup.dem.id}-${currentMatchup.rep.id}` : null
+
+    if (allMatchupsCompleted || (currentKey && !votedKeys.has(currentKey))) {
+      return normalizedIdx
+    }
+
+    return findNextUnvotedIndex(matchups, votedKeys, normalizedIdx, 1)
+  }, [allMatchupsCompleted, idx, matchups, votedKeys])
+
   const vote = useCallback(async (side) => {
     if (voteAdvancePending) return
-    const currentMatchup = matchups[idx]
+    const currentMatchup = matchups[activeIdx]
     if (!currentMatchup) return
     const key = `${currentMatchup.dem.id}-${currentMatchup.rep.id}`
     if (votedKeys.has(key)) {
-      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, idx + 1, 1)
+      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, activeIdx + 1, 1)
       if (nextIdx !== -1) setIdx(nextIdx)
       setLiveMessage(nextIdx === -1 ? "You've already voted on every matchup." : 'Skipping a matchup you already voted on.')
       return
@@ -548,7 +561,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [activeRecommendationType, idx, matchups, voteAdvancePending, votedKeys])
+  }, [activeIdx, activeRecommendationType, matchups, voteAdvancePending, votedKeys])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -704,7 +717,7 @@ export default function App() {
   }, [demCandidates, repCandidates, randomness])
 
   useEffect(() => {
-    const activeMatchup = matchups[idx]
+    const activeMatchup = matchups[activeIdx]
     const namesToLoad = []
     if (
       activeMatchup?.dem?.name &&
@@ -729,21 +742,21 @@ export default function App() {
         if (!Object.keys(found).length) return
         setPhotos(prev => ({ ...prev, ...found }))
       })
-  }, [idx, matchups, photos])
+  }, [activeIdx, matchups, photos])
 
   const prev = useCallback(() => {
     setIdx(i => {
-      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, i - 1, -1)
+      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, activeIdx - 1, -1)
       return nextIdx === -1 ? i : nextIdx
     })
-  }, [matchups, votedKeys])
+  }, [activeIdx, matchups, votedKeys])
 
   const next = useCallback(() => {
     setIdx(i => {
-      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, i + 1, 1)
+      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, activeIdx + 1, 1)
       return nextIdx === -1 ? i : nextIdx
     })
-  }, [matchups, votedKeys])
+  }, [activeIdx, matchups, votedKeys])
 
   const queueRecommendedMatchup = useCallback((recommended) => {
     const targetKey = `${recommended.dem.id}-${recommended.rep.id}`
@@ -815,7 +828,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [vote, next, prev])
 
-  const current = matchups[idx]
+  const current = matchups[activeIdx] ?? matchups[0]
   const currentMatchupKey = current ? `${current.dem.id}-${current.rep.id}` : null
   const alreadyVotedCurrent = currentMatchupKey ? votedKeys.has(currentMatchupKey) : false
 
@@ -859,12 +872,10 @@ export default function App() {
       return
     }
 
-    const nextIdx = findNextUnvotedIndex(matchups, votedKeys, idx, 1)
-    if (nextIdx !== -1 && nextIdx !== idx) {
-      setIdx(nextIdx)
-      setLiveMessage('Skipping a matchup you already voted on.')
+    if (activeIdx !== -1 && activeIdx !== idx) {
+      setIdx(activeIdx)
     }
-  }, [allMatchupsCompleted, idx, matchups, votedKeys])
+  }, [activeIdx, allMatchupsCompleted, idx, matchups.length])
 
   if (loading) return <LoadingScreen timedOut={bootTimedOut} />
   if (error) return <ErrorScreen message={error} />
@@ -1132,7 +1143,7 @@ export default function App() {
           candidate={current.dem}
           photo={photos[current.dem.name]}
           party="dem"
-          animKey={`dem-${idx}`}
+          animKey={`dem-${activeIdx}`}
           onVote={() => { vote('dem') }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
@@ -1150,8 +1161,8 @@ export default function App() {
             <button className="nav-btn" onClick={prev} disabled={total <= 1} aria-label="Previous">
               &#8249;
             </button>
-            <span className="nav-count">{idx + 1} / {total}</span>
-            <button className="nav-btn" onClick={next} disabled={idx === total - 1} aria-label="Next">
+            <span className="nav-count">{activeIdx + 1} / {total}</span>
+            <button className="nav-btn" onClick={next} disabled={total <= 1} aria-label="Next">
               &#8250;
             </button>
           </div>
@@ -1196,7 +1207,7 @@ export default function App() {
           candidate={current.rep}
           photo={photos[current.rep.name]}
           party="rep"
-          animKey={`rep-${idx}`}
+          animKey={`rep-${activeIdx}`}
           onVote={() => { vote('rep') }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
