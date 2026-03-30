@@ -4,6 +4,7 @@ import './App.css'
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
 const VOTER_ID_STORAGE_KEY = 'voterId'
+const SESSION_VOTES_STORAGE_KEY = 'sessionVotes'
 
 function getOrCreateVoterId() {
   const existing = window.localStorage.getItem(VOTER_ID_STORAGE_KEY)
@@ -11,6 +12,25 @@ function getOrCreateVoterId() {
   const created = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
   window.localStorage.setItem(VOTER_ID_STORAGE_KEY, created)
   return created
+}
+
+function loadSessionVotes() {
+  try {
+    const raw = window.localStorage.getItem(SESSION_VOTES_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveSessionVotes(votes) {
+  try {
+    window.localStorage.setItem(SESSION_VOTES_STORAGE_KEY, JSON.stringify(votes))
+  } catch {
+    // Ignore storage failures (private mode/full quota).
+  }
 }
 
 async function fetchCandidates(slug, partyLabel) {
