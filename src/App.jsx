@@ -149,17 +149,18 @@ function fallbackAvatarUrl(name) {
   return `https://api.dicebear.com/9.x/initials/svg?${params.toString()}`
 }
 
-function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, isSelected }) {
+function CandidatePanel({ candidate, photo, party, animKey, onVote, canVote, flashTick }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
   return (
     <button
-      className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${isSelected ? 'panel-selected' : ''}`}
+      className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''}`}
       onClick={onVote}
       type="button"
       disabled={!canVote}
     >
       <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
+      <div className="vote-sparkle" aria-hidden="true" />
       <div className="photo-wrapper" key={animKey}>
         <img src={imageUrl} alt={candidate.name} className="candidate-photo" />
       </div>
@@ -213,6 +214,11 @@ export default function App() {
   const [pollLoading, setPollLoading] = useState(false)
   const [pollError, setPollError] = useState(null)
   const [votedKeys, setVotedKeys] = useState({})
+  const [showInsights, setShowInsights] = useState(false)
+  const [insightsLoading, setInsightsLoading] = useState(false)
+  const [insightsError, setInsightsError] = useState(null)
+  const [insightsSummary, setInsightsSummary] = useState('')
+  const [voteFx, setVoteFx] = useState({ side: null, tick: 0 })
 
   const fetchPoll = useCallback(async (matchup) => {
     const key = `${matchup.dem.id}-${matchup.rep.id}`
@@ -250,6 +256,7 @@ export default function App() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Poll vote failed (${res.status})`)
+      setVoteFx({ side, tick: Date.now() })
       setPollData(data)
       setVotedKeys(prev => ({ ...prev, [key]: true }))
     } catch (err) {
@@ -272,6 +279,22 @@ export default function App() {
       setLeaderboardError(err.message)
     } finally {
       setLeaderboardLoading(false)
+    }
+  }, [])
+
+  const fetchInsights = useCallback(async () => {
+    setInsightsLoading(true)
+    setInsightsError(null)
+    try {
+      const res = await fetch('/api/insights', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Insights API returned ${res.status}`)
+      setInsightsSummary(data.summary || '')
+    } catch (err) {
+      setInsightsError(err.message)
+      setInsightsSummary('')
+    } finally {
+      setInsightsLoading(false)
     }
   }, [])
 
@@ -368,9 +391,38 @@ export default function App() {
           >
             {showLeaderboard ? 'Hide leaderboard' : 'Leaderboard'}
           </button>
+          <button
+            type="button"
+            className="header-btn"
+            onClick={() => {
+              setShowInsights(open => {
+                const nextOpen = !open
+                if (nextOpen) fetchInsights()
+                return nextOpen
+              })
+            }}
+          >
+            {showInsights ? 'Hide insights' : 'Insights'}
+          </button>
           <span className="header-sub">Live odds from Polymarket · {total} matchups ranked by probability</span>
         </div>
       </header>
+
+      {showInsights && (
+        <section className="insights-drawer">
+          <div className="insights-title">AI Political Insights</div>
+          {insightsLoading && <div className="insights-status">Generating your political summary…</div>}
+          {!insightsLoading && insightsError && (
+            <div className="insights-status insights-error">{insightsError}</div>
+          )}
+          {!insightsLoading && !insightsError && insightsSummary && (
+            <p className="insights-body">{insightsSummary}</p>
+          )}
+          {!insightsLoading && !insightsError && !insightsSummary && (
+            <div className="insights-status">Vote on a few matchups first to generate insights.</div>
+          )}
+        </section>
+      )}
 
       {showLeaderboard && (
         <section className="leaderboard-drawer">
@@ -410,9 +462,9 @@ export default function App() {
           photo={photos[current.dem.name]}
           party="dem"
           animKey={`dem-${idx}`}
-          onVote={() => vote('dem')}
-          canVote={!pollLoading}
-          isSelected={selectedSide === 'dem'}
+          onVote={() => { if (!hasVoted) vote('dem') }}
+          canVote={!hasVoted && !pollLoading}
+          flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
         />
 
         <div className="vs-column">
@@ -470,9 +522,9 @@ export default function App() {
           photo={photos[current.rep.name]}
           party="rep"
           animKey={`rep-${idx}`}
-          onVote={() => vote('rep')}
-          canVote={!pollLoading}
-          isSelected={selectedSide === 'rep'}
+          onVote={() => { if (!hasVoted) vote('rep') }}
+          canVote={!hasVoted && !pollLoading}
+          flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
         />
       </main>
     </div>

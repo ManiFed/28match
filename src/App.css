@@ -58,6 +58,38 @@
 
 /* ===== Leaderboard ===== */
 
+.insights-drawer {
+  flex-shrink: 0;
+  background: #0b0b0b;
+  border-bottom: 1px solid #1e1e1e;
+  padding: 12px 16px;
+}
+
+.insights-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8f8f8f;
+  margin-bottom: 0.45rem;
+}
+
+.insights-body {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #d6d6d6;
+  line-height: 1.45;
+}
+
+.insights-status {
+  font-size: 0.8rem;
+  color: #969696;
+}
+
+.insights-error {
+  color: #ff7171;
+}
+
+
 .leaderboard-drawer {
   flex-shrink: 0;
   background: #0a0a0a;
@@ -142,8 +174,33 @@
   outline-offset: -6px;
 }
 
-.panel-selected {
-  box-shadow: inset 0 0 0 5px rgba(255, 255, 255, 0.75);
+
+.candidate-panel.vote-flash {
+  animation: votePulse 420ms ease-out;
+}
+
+.candidate-panel .vote-sparkle {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(circle, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.15) 28%, rgba(255,255,255,0) 62%);
+}
+
+.candidate-panel.vote-flash .vote-sparkle {
+  animation: voteSpark 480ms ease-out;
+}
+
+@keyframes votePulse {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+@keyframes voteSpark {
+  0% { opacity: 0; transform: scale(0.45); }
+  20% { opacity: 0.8; }
+  100% { opacity: 0; transform: scale(1.15); }
 }
 
 .panel-dem {

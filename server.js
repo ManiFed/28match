@@ -9,6 +9,7 @@ const app = express()
 const PORT = process.env.PORT || 3000
 const candidateVoteTotals = new Map()
 const matchupVotes = new Map()
+const matchupMeta = new Map()
 const VOTER_COOKIE = 'voter_id'
 
 app.use(express.json())
@@ -80,6 +81,38 @@ function applyCandidateVoteDelta(side, candidate, delta) {
 
   existing.votes = Math.max(0, existing.votes + delta)
   candidateVoteTotals.set(candidateKey, existing)
+
+function getVoterVoteHistory(voterId) {
+  const history = []
+  for (const [key, votes] of matchupVotes.entries()) {
+    const side = votes.get(voterId)
+    if (!side) continue
+
+    const meta = matchupMeta.get(key)
+    if (!meta?.dem?.name || !meta?.rep?.name) continue
+
+    history.push({
+      key,
+      side,
+      chosenCandidate: side === 'dem' ? meta.dem.name : meta.rep.name,
+      opposingCandidate: side === 'dem' ? meta.rep.name : meta.dem.name,
+      matchup: `${meta.dem.name} vs ${meta.rep.name}`,
+    })
+  }
+
+  return history
+}
+
+function buildInsightsPrompt(history) {
+  const demVotes = history.filter(v => v.side === 'dem').length
+  const repVotes = history.filter(v => v.side === 'rep').length
+
+  const voteLines = history
+    .slice(0, 50)
+    .map(v => `- Picked ${v.chosenCandidate} over ${v.opposingCandidate}`)
+    .join('\n')
+
+  return `You are a neutral political analyst.\n\nBased only on these matchup choices, write a concise 4-6 sentence summary of the user's political preferences.\n\nTotal democratic picks: ${demVotes}\nTotal republican picks: ${repVotes}\n\nVotes:\n${voteLines}\n\nRequirements:\n- Do not claim certainty; use phrases like \"suggests\" or \"may indicate\".\n- Mention ideological lean (if any), candidate-style preferences, and one caveat about limited data.\n- Keep it plain English and avoid partisan persuasion.`
 }
 
 app.get('/api/poll/leaderboard', (_req, res) => {
@@ -116,6 +149,18 @@ app.post('/api/poll/vote', (req, res) => {
   if (priorVote) {
     const priorCandidate = priorVote === 'dem' ? dem : rep
     applyCandidateVoteDelta(priorVote, priorCandidate, -1)
+  if (dem?.id && dem?.name && rep?.id && rep?.name) {
+    matchupMeta.set(key, {
+      dem: { id: dem.id, name: dem.name },
+      rep: { id: rep.id, name: rep.name },
+    })
+  }
+
+  if (votes.has(voterId)) {
+    return res.status(409).json({
+      error: 'You already voted on this matchup.',
+      ...getPollSummary(key, voterId),
+    })
   }
 
   votes.set(voterId, side)
@@ -126,6 +171,57 @@ app.post('/api/poll/vote', (req, res) => {
 
   const poll = getPollSummary(key, voterId)
   res.json({ key, ...poll, totalVotes: poll.demVotes + poll.repVotes })
+})
+
+
+app.post('/api/insights', async (req, res) => {
+  const voterId = getVoterId(req, res)
+  const history = getVoterVoteHistory(voterId)
+
+  if (history.length === 0) {
+    return res.json({ summary: '' })
+  }
+
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    return res.status(500).json({
+      error: 'OPENROUTER_API_KEY is not configured on the server.',
+    })
+  }
+
+  try {
+    const prompt = buildInsightsPrompt(history)
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You analyze voting-preference signals carefully and neutrally.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.5,
+      }),
+    })
+
+    const payload = await response.json()
+    if (!response.ok) {
+      const errMsg = payload?.error?.message || `OpenRouter error (${response.status})`
+      return res.status(502).json({ error: errMsg })
+    }
+
+    const summary = payload?.choices?.[0]?.message?.content?.trim()
+    if (!summary) {
+      return res.status(502).json({ error: 'OpenRouter returned an empty response.' })
+    }
+
+    res.json({ summary })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to generate insights.' })
+  }
 })
 
 app.use(
