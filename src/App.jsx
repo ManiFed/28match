@@ -15,7 +15,7 @@ async function fetchCandidates(slug, partyLabel) {
 
   const markets = event.markets || []
 
-  const candidates = markets
+  const rawCandidates = markets
     .map(market => {
       let outcomes, prices
       try {
@@ -47,13 +47,57 @@ async function fetchCandidates(slug, partyLabel) {
       if (prob > 1) return null
 
       const name = nameMatch[1].trim()
+      const active = market.active !== false
+      const acceptingOrders = market.acceptingOrders !== false
+      const closed = market.closed === true
+      const archived = market.archived === true
+      const liquidity = Number.parseFloat(market.liquidityNum ?? market.liquidity ?? 0) || 0
+      const volume = Number.parseFloat(market.volumeNum ?? market.volume ?? 0) || 0
 
-      return { id: market.id, name, prob }
+      return {
+        id: market.id,
+        name,
+        prob,
+        active,
+        acceptingOrders,
+        closed,
+        archived,
+        liquidity,
+        volume,
+      }
     })
     .filter(Boolean)
-    .sort((a, b) => b.prob - a.prob)
 
-  return candidates
+  // Some events can include duplicate nominee markets per candidate
+  // (historical/archived + active). Prefer active, order-accepting, liquid markets.
+  const byName = new Map()
+  for (const candidate of rawCandidates) {
+    const current = byName.get(candidate.name)
+    if (!current) {
+      byName.set(candidate.name, candidate)
+      continue
+    }
+
+    const rank = (c) => [
+      c.active && !c.closed && !c.archived ? 1 : 0,
+      c.acceptingOrders ? 1 : 0,
+      c.liquidity,
+      c.volume,
+    ]
+    const [a1, a2, a3, a4] = rank(candidate)
+    const [b1, b2, b3, b4] = rank(current)
+    const candidateWins = (
+      a1 > b1 ||
+      (a1 === b1 && a2 > b2) ||
+      (a1 === b1 && a2 === b2 && a3 > b3) ||
+      (a1 === b1 && a2 === b2 && a3 === b3 && a4 > b4)
+    )
+    if (candidateWins) byName.set(candidate.name, candidate)
+  }
+
+  return [...byName.values()]
+    .sort((a, b) => b.prob - a.prob)
+    .map(({ id, name, prob }) => ({ id, name, prob }))
 }
 
 async function fetchWikiPhoto(name) {
