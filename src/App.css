@@ -38,8 +38,39 @@
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.55rem;
   position: relative;
+}
+
+.header-menu-wrap {
+  position: relative;
+}
+
+.menu-btn {
+  width: 44px;
+  padding: 0;
+  font-size: 1.1rem;
+}
+
+.header-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
+  min-width: 220px;
+  background: #111214;
+  border: 1px solid #303030;
+  border-radius: 10px;
+  padding: 0.55rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.header-menu-action {
+  width: 100%;
 }
 
 .header-vote-stats {
@@ -854,7 +885,7 @@
 /* ===== VS Column ===== */
 
 .vs-column {
-  width: 180px;
+  width: 148px;
   flex-shrink: 0;
   background: #0d0d0d;
   border-left: 1px solid #1e1e1e;
@@ -863,8 +894,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  padding: 1rem 0.5rem;
+  gap: 0.7rem;
+  padding: 0.8rem 0.35rem;
 }
 
 .vs-text {
@@ -1180,7 +1211,7 @@
 /* ===== Responsive ===== */
 
 @media (max-width: 980px) {
-  .arena { flex-direction: column; overflow-y: auto; }
+  .arena { flex-direction: column; overflow: hidden; }
   .candidate-shell { width: 100%; min-height: 40vh; }
   .vs-column {
     width: 100%;
@@ -1195,10 +1226,10 @@
     border-top: 1px solid #1e1e1e;
     border-bottom: 1px solid #1e1e1e;
   }
-  .poll-card,
-  .controls-card {
-    max-width: 360px;
-  }
+.poll-card,
+.controls-card {
+  max-width: 360px;
+}
 }
 
 @media (max-width: 700px) {
@@ -1207,39 +1238,46 @@
   }
 
   .app-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.55rem;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
     padding: 10px 12px;
   }
 
   .header-title {
-    text-align: center;
+    text-align: left;
     font-size: 0.86rem;
   }
 
   .header-actions {
-    width: 100%;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.45rem;
+    width: auto;
   }
 
-  .header-btn {
-    padding: 9px 10px;
-    font-size: 0.68rem;
+  .header-menu-panel {
+    min-width: 200px;
   }
 
-  .arena { flex-direction: column; }
+  .arena {
+    flex-direction: column;
+    overflow: hidden;
+  }
 
-  .candidate-panel { padding: 1.2rem 1rem; gap: 1rem; }
+  .candidate-shell {
+    min-height: 0;
+    flex: 1 1 45%;
+  }
 
-  .photo-wrapper { width: 130px; height: 130px; }
+  .candidate-panel { padding: 0.75rem 0.8rem; gap: 0.6rem; }
 
-  .vs-text { font-size: 1.4rem; }
+  .photo-wrapper { width: 98px; height: 98px; }
+
+  .vs-text { display: none; }
   .poll-card { max-width: 330px; }
 
-  .candidate-name { font-size: 1.1rem; }
+  .candidate-name { font-size: 0.95rem; }
+  .prob-pct { font-size: 1.15rem; }
+  .prob-pill { padding: 0.35rem 1rem; }
 
   .header-vote-stats { min-width: 180px; }
   .vote-split-label {
@@ -1247,6 +1285,61 @@
     font-size: 0.6rem;
   }
   .header-sub { display: block; font-size: 0.62rem; }
+  .vs-column {
+    width: 100%;
+    flex: 0 0 auto;
+    padding: 0.35rem 0.65rem;
+    gap: 0.35rem;
+    min-height: 0;
+  }
+  .combined-prob {
+    flex-direction: row;
+    gap: 0.35rem;
+  }
+  .cp-pct {
+    font-size: 0.95rem;
+  }
+  .cp-label {
+    font-size: 0.52rem;
+    margin-top: 0;
+  }
+  .poll-card {
+    padding: 0.4rem;
+  }
+  .poll-title {
+    font-size: 0.58rem;
+    margin-bottom: 0.2rem;
+  }
+  .poll-row,
+  .poll-meta {
+    font-size: 0.56rem;
+  }
+  .poll-results-visible {
+    margin-top: 0.25rem;
+    padding-top: 0.25rem;
+  }
+  .nav-btn {
+    width: 34px;
+    height: 34px;
+    font-size: 1.1rem;
+  }
+  .nav-count {
+    font-size: 0.6rem;
+  }
+  .predict-btn {
+    font-size: 0.58rem;
+    min-height: 36px;
+    padding: 6px 8px;
+  }
+  .prediction-prob-bar {
+    margin-top: 0;
+  }
+  .prediction-prob-track {
+    height: 7px;
+  }
+  .prediction-prob-labels {
+    font-size: 0.5rem;
+  }
   .leaderboard-header,
   .leaderboard-row {
     grid-template-columns: 52px 1fr 84px 64px 64px 72px;

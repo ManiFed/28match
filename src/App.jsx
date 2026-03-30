@@ -662,6 +662,7 @@ export default function App() {
   const [randomness, setRandomness] = useState(INITIAL_RANDOMNESS)
   const [showSettings, setShowSettings] = useState(false)
   const [showProjectHelp, setShowProjectHelp] = useState(false)
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const [voteAdvancePending, setVoteAdvancePending] = useState(false)
   const [liveMessage, setLiveMessage] = useState('')
   const [streak, setStreak] = useState(0)
@@ -1165,6 +1166,11 @@ export default function App() {
         Boolean(activeElement?.isContentEditable)
       )
       if (isEditingControl) return
+      if (e.key === 'Escape') {
+        setShowHeaderMenu(false)
+        setShowSettings(false)
+        setShowProjectHelp(false)
+      }
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
         vote('dem')
@@ -1298,90 +1304,106 @@ export default function App() {
       <header className="app-header">
         <span className="header-title">2028 Presidential Matchups</span>
         <div className="header-actions">
-          <div className="settings-wrap">
+          <div className="header-menu-wrap">
             <button
               type="button"
-              className="header-btn settings-btn"
-              aria-label="Matchup randomness settings"
-              aria-expanded={showSettings}
-              aria-controls="settings-panel"
-              onClick={() => setShowSettings(s => !s)}
+              className="header-btn menu-btn"
+              aria-label="Open header menu"
+              aria-expanded={showHeaderMenu}
+              aria-controls="header-menu-panel"
+              onClick={() => setShowHeaderMenu(s => !s)}
             >
-              ⚙
+              ☰
             </button>
-            {showSettings && (
-              <div className="settings-popover" id="settings-panel" role="region" aria-label="Matchup randomness settings">
-                <div className="settings-title">Matchup randomness</div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={Math.round(randomness * 100)}
-                  onChange={(e) => setRandomness(Number(e.target.value) / 100)}
-                  className="settings-slider"
-                />
-                <div className="settings-scale">
-                  <span>More likely</span>
-                  <span>More random</span>
+            {showHeaderMenu && (
+              <div className="header-menu-panel" id="header-menu-panel" role="menu" aria-label="Header menu">
+                <div className="settings-wrap">
+                  <button
+                    type="button"
+                    className="header-btn settings-btn"
+                    aria-label="Matchup randomness settings"
+                    aria-expanded={showSettings}
+                    aria-controls="settings-panel"
+                    onClick={() => setShowSettings(s => !s)}
+                  >
+                    ⚙
+                  </button>
+                  {showSettings && (
+                    <div className="settings-popover" id="settings-panel" role="region" aria-label="Matchup randomness settings">
+                      <div className="settings-title">Matchup randomness</div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={Math.round(randomness * 100)}
+                        onChange={(e) => setRandomness(Number(e.target.value) / 100)}
+                        className="settings-slider"
+                      />
+                      <div className="settings-scale">
+                        <span>More likely</span>
+                        <span>More random</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
+                <div className="settings-wrap">
+                  <button
+                    type="button"
+                    className="header-btn settings-btn"
+                    aria-label="About this project"
+                    aria-expanded={showProjectHelp}
+                    aria-controls="about-project-panel"
+                    onClick={() => setShowProjectHelp(s => !s)}
+                  >
+                    ?
+                  </button>
+                  {showProjectHelp && (
+                    <div className="settings-popover help-popover" id="about-project-panel" role="region" aria-label="About this project">
+                      <div className="settings-title">About this project</div>
+                      <p>
+                        This app pairs Democratic and Republican 2028 nominee markets from Polymarket and
+                        lets you vote on each matchup.
+                      </p>
+                      <p>
+                        Candidate percentages come from live nomination odds, while the poll percentages
+                        show votes stored locally on your device.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="header-btn header-menu-action"
+                  aria-pressed={showLeaderboard}
+                  onClick={() => setShowLeaderboard(s => !s)}
+                >
+                  {showLeaderboard ? 'Hide leaderboard' : 'Leaderboard'}
+                </button>
+                <button
+                  type="button"
+                  className="header-btn header-menu-action"
+                  aria-pressed={showInsights}
+                  onClick={() => {
+                    setShowInsights(open => {
+                      const nextOpen = !open
+                      if (nextOpen) fetchInsights()
+                      return nextOpen
+                    })
+                  }}
+                >
+                  {showInsights ? 'Hide insights' : 'Insights'}
+                </button>
+                <button
+                  type="button"
+                  className="header-btn header-menu-action"
+                  aria-pressed={showStats}
+                  onClick={() => setShowStats(s => !s)}
+                >
+                  {showStats ? 'Hide stats' : 'Stats'}
+                </button>
               </div>
             )}
           </div>
-          <div className="settings-wrap">
-            <button
-              type="button"
-              className="header-btn settings-btn"
-              aria-label="About this project"
-              aria-expanded={showProjectHelp}
-              aria-controls="about-project-panel"
-              onClick={() => setShowProjectHelp(s => !s)}
-            >
-              ?
-            </button>
-            {showProjectHelp && (
-              <div className="settings-popover help-popover" id="about-project-panel" role="region" aria-label="About this project">
-                <div className="settings-title">About this project</div>
-                <p>
-                  This app pairs Democratic and Republican 2028 nominee markets from Polymarket and
-                  lets you vote on each matchup.
-                </p>
-                <p>
-                  Candidate percentages come from live nomination odds, while the poll percentages
-                  show votes stored locally on your device.
-                </p>
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            className="header-btn"
-            aria-pressed={showLeaderboard}
-            onClick={() => setShowLeaderboard(s => !s)}
-          >
-            {showLeaderboard ? 'Hide leaderboard' : 'Leaderboard'}
-          </button>
-          <button
-            type="button"
-            className="header-btn"
-            aria-pressed={showInsights}
-            onClick={() => {
-              setShowInsights(open => {
-                const nextOpen = !open
-                if (nextOpen) fetchInsights()
-                return nextOpen
-              })
-            }}
-          >
-            {showInsights ? 'Hide insights' : 'Insights'}
-          </button>
-          <button
-            type="button"
-            className="header-btn"
-            aria-pressed={showStats}
-            onClick={() => setShowStats(s => !s)}
-          >
-            {showStats ? 'Hide stats' : 'Stats'}
-          </button>
         </div>
       </header>
       {startupNotice && (
@@ -1600,14 +1622,6 @@ export default function App() {
                 {pollLoading ? 'Updating your local results…' : `${pollData?.totalVotes || 0} local votes`}
               </div>
             </div>
-          </div>
-
-          <div className="controls-card">
-            <div className="controls-title">Who would you vote for?</div>
-            <div className="controls-row"><kbd>←</kbd> vote {current.dem.name.split(' ')[0]}</div>
-            <div className="controls-row"><kbd>→</kbd> vote {current.rep.name.split(' ')[0]}</div>
-            <div className="controls-row"><kbd>Swipe</kbd> left/right to vote</div>
-            <div className="controls-row"><kbd>↑</kbd>/<kbd>↓</kbd> prev/next matchup</div>
           </div>
 
           {showPredictionForCurrent && (
