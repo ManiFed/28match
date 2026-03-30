@@ -64,36 +64,6 @@ async function getPollSummary(key) {
   }
 }
 
-function applyCandidateVoteDelta(side, candidate, delta) {
-  if (!candidate?.id || !candidate?.name || !delta) return
-
-  const candidateKey = `${side}:${candidate.id}`
-  const existing = candidateVoteTotals.get(candidateKey) || {
-    id: candidate.id,
-    name: candidate.name,
-    party: side,
-    votes: 0,
-  }
-
-  existing.votes = Math.max(0, existing.votes + delta)
-  candidateVoteTotals.set(candidateKey, existing)
-}
-
-function getVoterVoteHistory(voterId) {
-  const history = []
-  for (const [key, votes] of matchupVotes.entries()) {
-    const side = votes.get(voterId)
-    if (!side) continue
-
-    const meta = matchupMeta.get(key)
-    if (!meta?.dem?.name || !meta?.rep?.name) continue
-
-    history.push({
-      key,
-      side,
-      chosenCandidate: side === 'dem' ? meta.dem.name : meta.rep.name,
-      opposingCandidate: side === 'dem' ? meta.rep.name : meta.dem.name,
-      matchup: `${meta.dem.name} vs ${meta.rep.name}`,
 app.get('/api/poll/leaderboard', async (_req, res) => {
   try {
     const result = await pool.query(`
@@ -146,52 +116,6 @@ app.post('/api/poll/vote', async (req, res) => {
     return res.status(400).json({ error: 'Invalid vote payload.' })
   }
 
-  const voterId = getVoterId(req, res)
-  const votes = matchupVotes.get(key) || new Map()
-  const priorVote = votes.get(voterId)
-
-  if (priorVote === side) {
-    const poll = getPollSummary(key, voterId)
-    return res.json({ key, ...poll, totalVotes: poll.demVotes + poll.repVotes })
-  }
-
-  if (priorVote) {
-    const priorCandidate = priorVote === 'dem' ? dem : rep
-    applyCandidateVoteDelta(priorVote, priorCandidate, -1)
-  }
-
-  if (dem?.id && dem?.name && rep?.id && rep?.name) {
-    matchupMeta.set(key, {
-      dem: { id: dem.id, name: dem.name },
-      rep: { id: rep.id, name: rep.name },
-    })
-  }
-
-  votes.set(voterId, side)
-  matchupVotes.set(key, votes)
-
-  const votedCandidate = side === 'dem' ? dem : rep
-  applyCandidateVoteDelta(side, votedCandidate, 1)
-
-  const poll = getPollSummary(key, voterId)
-  res.json({ key, ...poll, totalVotes: poll.demVotes + poll.repVotes })
-})
-
-
-app.post('/api/insights', async (req, res) => {
-  const voterId = getVoterId(req, res)
-  const history = getVoterVoteHistory(voterId)
-
-  if (history.length === 0) {
-    return res.json({ summary: '' })
-  }
-
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
-    return res.status(500).json({
-      error: 'OPENROUTER_API_KEY is not configured on the server.',
-    })
-  }
   if (!dem?.id || !dem?.name || !rep?.id || !rep?.name) {
     return res.status(400).json({ error: 'Both matchup candidates are required.' })
   }
