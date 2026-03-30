@@ -67,6 +67,16 @@ function getPollSummary(key, voterId) {
   }
 }
 
+app.get('/api/poll/leaderboard', (_req, res) => {
+  const leaderboard = [...candidateVoteTotals.values()]
+    .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
+
+  res.json({
+    totalVotes: leaderboard.reduce((sum, entry) => sum + entry.votes, 0),
+    leaderboard,
+  })
+})
+
 app.get('/api/poll/:key', (req, res) => {
   const key = req.params.key
   const voterId = getVoterId(req, res)
@@ -107,16 +117,6 @@ app.post('/api/poll/vote', (req, res) => {
 
   const poll = getPollSummary(key, voterId)
   res.json({ key, ...poll, totalVotes: poll.demVotes + poll.repVotes })
-})
-
-app.get('/api/poll/leaderboard', (_req, res) => {
-  const leaderboard = [...candidateVoteTotals.values()]
-    .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
-
-  res.json({
-    totalVotes: leaderboard.reduce((sum, entry) => sum + entry.votes, 0),
-    leaderboard,
-  })
 })
 
 app.use(
