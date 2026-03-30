@@ -333,11 +333,11 @@ export default function App() {
     const handler = (e) => {
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        if (!pollData?.hasVoted) vote('dem')
+        vote('dem')
       }
       if (e.key === 'ArrowRight') {
         e.preventDefault()
-        if (!pollData?.hasVoted) vote('rep')
+        vote('rep')
       }
       if (e.key === ' ') {
         e.preventDefault()
@@ -346,7 +346,7 @@ export default function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [vote, next, pollData?.hasVoted])
+  }, [vote, next])
 
   const current = matchups[idx]
   const currentKey = current ? `${current.dem.id}-${current.rep.id}` : null
@@ -374,6 +374,7 @@ export default function App() {
 
   const total = matchups.length
   const hasVoted = Boolean(pollData?.hasVoted)
+  const selectedSide = pollData?.userVote || null
   const demVotePct = pollData?.totalVotes ? (pollData.demVotes / pollData.totalVotes) * 100 : 0
   const repVotePct = pollData?.totalVotes ? (pollData.repVotes / pollData.totalVotes) * 100 : 0
 
