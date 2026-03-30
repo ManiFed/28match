@@ -4,6 +4,7 @@ import './App.css'
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
 const SESSION_VOTES_STORAGE_KEY = 'sessionVotes'
+const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
 const VOTE_CONFIRMATION_MS = 500
 
 function loadSessionVotes() {
@@ -22,6 +23,28 @@ function saveSessionVotes(votes) {
     window.localStorage.setItem(SESSION_VOTES_STORAGE_KEY, JSON.stringify(votes))
   } catch {
     // Ignore storage failures (private mode/full quota).
+  }
+}
+
+function loadRecommendationEngagement() {
+  try {
+    const raw = window.localStorage.getItem(RECOMMENDATION_ENGAGEMENT_KEY)
+    if (!raw) return { exposures: {}, votes: {} }
+    const parsed = JSON.parse(raw)
+    return {
+      exposures: parsed?.exposures || {},
+      votes: parsed?.votes || {},
+    }
+  } catch {
+    return { exposures: {}, votes: {} }
+  }
+}
+
+function saveRecommendationEngagement(engagement) {
+  try {
+    window.localStorage.setItem(RECOMMENDATION_ENGAGEMENT_KEY, JSON.stringify(engagement))
+  } catch {
+    // Ignore storage failures.
   }
 }
 
@@ -189,6 +212,28 @@ function buildMatchups(dems, reps, randomness = 0) {
     })
 }
 
+function classifyVote(vote) {
+  const pickedProb = vote?.side === 'dem' ? Number(vote?.demProb) || 0 : Number(vote?.repProb) || 0
+  const otherProb = vote?.side === 'dem' ? Number(vote?.repProb) || 0 : Number(vote?.demProb) || 0
+  return pickedProb < otherProb ? 'underdog' : 'favorite'
+}
+
+function getVoteProfile(votes) {
+  if (!votes.length) {
+    return { preferredSide: 'dem', preferredTrait: 'underdog' }
+  }
+  const counts = votes.reduce((acc, vote) => {
+    acc.side[vote.side] = (acc.side[vote.side] || 0) + 1
+    const trait = classifyVote(vote)
+    acc.trait[trait] = (acc.trait[trait] || 0) + 1
+    return acc
+  }, { side: { dem: 0, rep: 0 }, trait: { underdog: 0, favorite: 0 } })
+
+  const preferredSide = counts.side.dem >= counts.side.rep ? 'dem' : 'rep'
+  const preferredTrait = counts.trait.underdog >= counts.trait.favorite ? 'underdog' : 'favorite'
+  return { preferredSide, preferredTrait }
+}
+
 function fallbackAvatarUrl(name) {
   const params = new URLSearchParams({
     seed: name,
@@ -285,7 +330,16 @@ export default function App() {
   const [showInsights, setShowInsights] = useState(false)
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsError, setInsightsError] = useState(null)
-  const [insightsSummary, setInsightsSummary] = useState('')
+  const [insightsData, setInsightsData] = useState({
+    bias_signals: [],
+    surprising_votes: [],
+    suggested_matchups: [],
+    confidence_notes: [],
+    summary: '',
+  })
+  const [recommendationEngagement, setRecommendationEngagement] = useState(() => loadRecommendationEngagement())
+  const [recommendedMatchups, setRecommendedMatchups] = useState([])
+  const [activeRecommendationType, setActiveRecommendationType] = useState(null)
   const [voteFx, setVoteFx] = useState({ side: null, tick: 0 })
   const [demCandidates, setDemCandidates] = useState([])
   const [repCandidates, setRepCandidates] = useState([])
@@ -311,6 +365,10 @@ export default function App() {
     }, 500)
     return () => window.clearTimeout(timer)
   }, [voteFx.side, voteFx.tick])
+
+  useEffect(() => {
+    saveRecommendationEngagement(recommendationEngagement)
+  }, [recommendationEngagement])
 
   const fetchPoll = useCallback(async (matchup) => {
     const key = `${matchup.dem.id}-${matchup.rep.id}`
@@ -367,6 +425,16 @@ export default function App() {
         saveSessionVotes(nextVotes)
         return nextVotes
       })
+      if (activeRecommendationType) {
+        setRecommendationEngagement(prev => ({
+          ...prev,
+          votes: {
+            ...prev.votes,
+            [activeRecommendationType]: (prev.votes?.[activeRecommendationType] || 0) + 1,
+          },
+        }))
+        setActiveRecommendationType(null)
+      }
       setVoteAdvancePending(true)
       if (voteAdvanceTimerRef.current) {
         window.clearTimeout(voteAdvanceTimerRef.current)
@@ -381,7 +449,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [idx, matchups, voteAdvancePending])
+  }, [activeRecommendationType, idx, matchups, voteAdvancePending])
 
   const fetchLeaderboard = useCallback(async () => {
     setLeaderboardLoading(true)
@@ -399,9 +467,47 @@ export default function App() {
     }
   }, [])
 
+  const buildContrastingRecommendations = useCallback(() => {
+    if (!matchups.length) return []
+    const voteProfile = getVoteProfile(sessionVotes.slice(-30))
+    const oppositeSide = voteProfile.preferredSide === 'dem' ? 'rep' : 'dem'
+    const oppositeTrait = voteProfile.preferredTrait === 'underdog' ? 'favorite' : 'underdog'
+    const votedKeys = new Set(sessionVotes.map(v => v.key))
+    const exposure = recommendationEngagement.exposures || {}
+    const votes = recommendationEngagement.votes || {}
+
+    const scored = matchups
+      .filter(matchup => !votedKeys.has(`${matchup.dem.id}-${matchup.rep.id}`))
+      .map(matchup => {
+        const oppositeCandidate = oppositeSide === 'dem' ? matchup.dem : matchup.rep
+        const otherCandidate = oppositeSide === 'dem' ? matchup.rep : matchup.dem
+        const trait = oppositeCandidate.prob < otherCandidate.prob ? 'underdog' : 'favorite'
+        const typeKey = `${oppositeSide}_${trait}`
+        const typeExposure = exposure[typeKey] || 0
+        const typeVotes = votes[typeKey] || 0
+        const engagementRate = typeExposure ? typeVotes / typeExposure : 0.5
+        const contrastScore = (trait === oppositeTrait ? 2 : 0) + (engagementRate * 0.8)
+
+        return {
+          ...matchup,
+          recommendationType: typeKey,
+          contrastScore: contrastScore + Math.random() * 0.2,
+        }
+      })
+      .sort((a, b) => b.contrastScore - a.contrastScore)
+
+    return scored.slice(0, 3)
+  }, [matchups, recommendationEngagement.exposures, recommendationEngagement.votes, sessionVotes])
+
   const fetchInsights = useCallback(async () => {
     if (!sessionVotes.length) {
-      setInsightsSummary('')
+      setInsightsData({
+        bias_signals: [],
+        surprising_votes: [],
+        suggested_matchups: [],
+        confidence_notes: [],
+        summary: '',
+      })
       setInsightsError(null)
       return
     }
@@ -411,18 +517,35 @@ export default function App() {
       const res = await fetch('/api/insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ votes: sessionVotes }),
+        body: JSON.stringify({
+          votes: sessionVotes,
+          format: 'both',
+          recommendationFeedback: recommendationEngagement,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Insights API returned ${res.status}`)
-      setInsightsSummary(data.summary || '')
+      setInsightsData({
+        bias_signals: data?.structured?.bias_signals || [],
+        surprising_votes: data?.structured?.surprising_votes || [],
+        suggested_matchups: data?.structured?.suggested_matchups || [],
+        confidence_notes: data?.structured?.confidence_notes || [],
+        summary: data?.summary || '',
+      })
+      setRecommendedMatchups(buildContrastingRecommendations())
     } catch (err) {
       setInsightsError(err.message)
-      setInsightsSummary('')
+      setInsightsData({
+        bias_signals: [],
+        surprising_votes: [],
+        suggested_matchups: [],
+        confidence_notes: [],
+        summary: '',
+      })
     } finally {
       setInsightsLoading(false)
     }
-  }, [sessionVotes])
+  }, [buildContrastingRecommendations, recommendationEngagement, sessionVotes])
 
   useEffect(() => {
     ;(async () => {
@@ -495,6 +618,27 @@ export default function App() {
   }, [matchups.length])
   const next = useCallback(() => setIdx(i => Math.min(matchups.length - 1, i + 1)), [matchups.length])
 
+  const queueRecommendedMatchup = useCallback((recommended) => {
+    const targetKey = `${recommended.dem.id}-${recommended.rep.id}`
+    const targetIdx = matchups.findIndex(m => `${m.dem.id}-${m.rep.id}` === targetKey)
+    if (targetIdx === -1) return
+    setRecommendationEngagement(prev => ({
+      ...prev,
+      exposures: {
+        ...prev.exposures,
+        [recommended.recommendationType]: (prev.exposures?.[recommended.recommendationType] || 0) + 1,
+      },
+    }))
+    setActiveRecommendationType(recommended.recommendationType)
+    setIdx(targetIdx)
+  }, [matchups])
+
+  const challengeBias = useCallback(() => {
+    const refreshed = buildContrastingRecommendations()
+    setRecommendedMatchups(refreshed)
+    if (refreshed[0]) queueRecommendedMatchup(refreshed[0])
+  }, [buildContrastingRecommendations, queueRecommendedMatchup])
+
   useEffect(() => {
     const handler = (e) => {
       if (e.key === 'ArrowLeft') {
@@ -526,6 +670,11 @@ export default function App() {
     if (!showLeaderboard) return
     fetchLeaderboard()
   }, [showLeaderboard, fetchLeaderboard, pollData?.totalVotes])
+
+  useEffect(() => {
+    if (!showInsights) return
+    setRecommendedMatchups(buildContrastingRecommendations())
+  }, [buildContrastingRecommendations, sessionVotes.length, showInsights])
 
   if (loading) return <LoadingScreen />
   if (error) return <ErrorScreen message={error} />
@@ -623,15 +772,63 @@ export default function App() {
 
       {showInsights && (
         <section className="insights-drawer">
-          <div className="insights-title">AI Political Insights</div>
+          <div className="insights-title-row">
+            <div className="insights-title">AI Political Insights</div>
+            <button type="button" className="header-btn challenge-btn" onClick={challengeBias}>
+              Challenge my bias
+            </button>
+          </div>
           {insightsLoading && <div className="insights-status">Generating your political summary…</div>}
           {!insightsLoading && insightsError && (
             <div className="insights-status insights-error">{insightsError}</div>
           )}
-          {!insightsLoading && !insightsError && insightsSummary && (
-            <p className="insights-body">{insightsSummary}</p>
+          {!insightsLoading && !insightsError && (insightsData.summary || insightsData.bias_signals.length > 0) && (
+            <div className="insights-grid">
+              <div className="insight-block">
+                <h3>Why this matchup is interesting</h3>
+                <p className="insights-body">
+                  {insightsData.summary || insightsData.bias_signals[0] || 'Gathering signal from your recent votes.'}
+                </p>
+                {insightsData.bias_signals.length > 1 && (
+                  <ul className="insights-list">
+                    {insightsData.bias_signals.slice(1).map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                )}
+              </div>
+              <div className="insight-block">
+                <h3>You often prefer X underdog profile</h3>
+                <ul className="insights-list">
+                  {(insightsData.surprising_votes.length ? insightsData.surprising_votes : ['No strong pattern yet.']).map(item => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="insight-block">
+                <h3>Try these 3 contrasting matchups next</h3>
+                <div className="recommendation-list">
+                  {recommendedMatchups.map((m) => (
+                    <button
+                      key={`${m.dem.id}-${m.rep.id}`}
+                      className="recommendation-item"
+                      type="button"
+                      onClick={() => queueRecommendedMatchup(m)}
+                    >
+                      {m.dem.name} vs {m.rep.name}
+                    </button>
+                  ))}
+                </div>
+                {insightsData.suggested_matchups.length > 0 && (
+                  <ul className="insights-list ai-suggestions">
+                    {insightsData.suggested_matchups.slice(0, 3).map(item => <li key={item}>{item}</li>)}
+                  </ul>
+                )}
+                {insightsData.confidence_notes.length > 0 && (
+                  <p className="insights-footnote">{insightsData.confidence_notes.join(' ')}</p>
+                )}
+              </div>
+            </div>
           )}
-          {!insightsLoading && !insightsError && !insightsSummary && (
+          {!insightsLoading && !insightsError && !insightsData.summary && insightsData.bias_signals.length === 0 && (
             <div className="insights-status">Vote on a few matchups first to generate insights.</div>
           )}
         </section>
