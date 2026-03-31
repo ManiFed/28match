@@ -27,6 +27,105 @@ const FALLBACK_REPS = [
   { id: 'fallback-rep-2', name: 'Ron DeSantis', prob: 0.22 },
   { id: 'fallback-rep-3', name: 'Nikki Haley', prob: 0.13 },
 ]
+const BASE_POSITION_TAGS = {
+  dem: [
+    'party-democrat',
+    'coalition-center-left',
+    'supports-abortion-rights',
+    'supports-climate-action',
+    'supports-voting-rights',
+    'supports-gun-safety-laws',
+    'supports-lgbtq-rights',
+    'supports-collective-bargaining',
+    'supports-healthcare-expansion',
+    'supports-immigration-reform',
+    'supports-social-safety-net',
+    'supports-antitrust-enforcement',
+    'supports-public-education-spending',
+    'supports-infrastructure-investment',
+    'supports-renewable-energy',
+    'supports-diplomatic-alliances',
+    'supports-prescription-drug-negotiation',
+    'supports-paid-family-leave',
+    'supports-child-tax-credit-expansion',
+    'supports-rich-tax-increases',
+    'supports-civil-rights-enforcement',
+    'supports-criminal-justice-reform',
+    'supports-student-debt-relief',
+    'supports-public-option',
+    'supports-consumer-protections',
+    'supports-pro-labor-nlrb',
+    'supports-federal-election-standards',
+    'supports-tech-regulation',
+    'supports-housing-supply-incentives',
+    'supports-asylum-process-modernization',
+  ],
+  rep: [
+    'party-republican',
+    'coalition-center-right',
+    'supports-tax-cuts',
+    'supports-deregulation',
+    'supports-border-enforcement',
+    'supports-domestic-energy-expansion',
+    'supports-school-choice',
+    'supports-second-amendment-rights',
+    'supports-restrictive-abortion-policy',
+    'supports-law-and-order',
+    'supports-federal-spending-restraint',
+    'supports-business-tax-relief',
+    'supports-parental-rights',
+    'supports-merit-based-immigration',
+    'supports-us-industrial-reshoring',
+    'supports-anti-woke-policy',
+    'supports-judicial-originalism',
+    'supports-strong-military',
+    'supports-police-funding',
+    'supports-fossil-fuel-permitting',
+    'supports-regulatory-rollback',
+    'supports-capital-gains-tax-relief',
+    'supports-right-to-work',
+    'supports-voter-id-laws',
+    'supports-local-control-education',
+    'supports-anti-crt-policy',
+    'supports-free-market-healthcare',
+    'supports-tough-on-china',
+    'supports-tariff-leverage',
+    'supports-balance-budget-priorities',
+  ],
+}
+
+const POSITION_KEYWORD_RULES = [
+  { pattern: /\b(kamala harris|harris)\b/, tags: ['abortion-rights-maximalist', 'gun-safety-priority', 'voting-rights-litigation', 'climate-regulation', 'criminal-justice-reform'] },
+  { pattern: /\b(gavin newsom|newsom)\b/, tags: ['state-progressive-governance', 'gun-safety-priority', 'climate-transition-policy', 'abortion-rights-maximalist', 'pro-lgbtq-rights'] },
+  { pattern: /\b(gretchen whitmer|whitmer)\b/, tags: ['midwest-pragmatist', 'infrastructure-delivery-focus', 'abortion-rights-maximalist', 'union-partnership', 'manufacturing-revival'] },
+  { pattern: /\b(josh shapiro|shapiro)\b/, tags: ['centrist-executive', 'institutional-trust', 'public-safety-reformer', 'fiscal-pragmatism', 'infrastructure-delivery-focus'] },
+  { pattern: /\b(wes moore|moore)\b/, tags: ['next-generation-democrat', 'anti-poverty-programs', 'workforce-training', 'public-safety-reformer', 'veterans-advocacy'] },
+  { pattern: /\b(pete buttigieg|buttigieg)\b/, tags: ['technocratic-reform', 'infrastructure-delivery-focus', 'climate-transition-policy', 'alliance-forward-foreign-policy', 'housing-supply-focus'] },
+  { pattern: /\b(cory booker|booker)\b/, tags: ['criminal-justice-reform', 'housing-reform', 'gun-safety-priority', 'urban-investment', 'faith-and-progressive-bridge'] },
+  { pattern: /\b(amy klobuchar|klobuchar)\b/, tags: ['midwest-pragmatist', 'antitrust-enforcement', 'farm-state-sensitivity', 'bipartisan-dealmaker', 'incremental-healthcare-reform'] },
+  { pattern: /\b(elizabeth warren|warren)\b/, tags: ['wealth-tax', 'anti-monopoly', 'consumer-protection-maximalist', 'student-debt-relief', 'anti-corruption-reforms'] },
+  { pattern: /\b(bernie sanders|sanders)\b/, tags: ['medicare-for-all', 'wealth-tax', 'pro-labor-maximalist', 'green-new-deal', 'anti-corporate-influence'] },
+  { pattern: /\b(alexandria ocasio-cortez|ocasio-cortez|aoc)\b/, tags: ['green-new-deal', 'wealth-tax', 'student-debt-relief', 'housing-as-human-right', 'ceasefire-diplomacy-priority'] },
+  { pattern: /\b(jb pritzker|pritzker)\b/, tags: ['state-progressive-governance', 'abortion-rights-maximalist', 'labor-alliance', 'budget-management', 'gun-safety-priority'] },
+  { pattern: /\b(raphael warnock|warnock)\b/, tags: ['voting-rights-litigation', 'medicaid-expansion', 'faith-based-progressive', 'anti-poverty-programs', 'public-safety-reformer'] },
+  { pattern: /\b(andrew cuomo|cuomo)\b/, tags: ['executive-experience', 'infrastructure-delivery-focus', 'centrist-executive', 'law-and-order-moderate', 'establishment-network'] },
+  { pattern: /\b(joe biden|biden)\b/, tags: ['alliance-forward-foreign-policy', 'industrial-policy', 'public-option-path', 'infrastructure-delivery-focus', 'incremental-progressivism'] },
+  { pattern: /\b(john fetterman|fetterman)\b/, tags: ['pro-labor-maximalist', 'criminal-justice-reform', 'rust-belt-populist-left', 'marijuana-legalization', 'social-welfare-expansion'] },
+  { pattern: /\b(donald trump|trump)\b/, tags: ['america-first-trade', 'border-enforcement-maximalist', 'tariff-forward', 'restrict-abortion-policy', 'executive-power-expansion'] },
+  { pattern: /\b(ron desantis|desantis)\b/, tags: ['culture-war-maximalist', 'restrict-abortion-policy', 'border-enforcement-maximalist', 'anti-dei-governance', 'state-preemption-strategy'] },
+  { pattern: /\b(nikki haley|haley)\b/, tags: ['hawkish-foreign-policy', 'pro-business-tax-cuts', 'border-enforcement', 'alliance-strengthening-right', 'executive-pragmatist-right'] },
+  { pattern: /\b(jd vance|vance)\b/, tags: ['economic-nationalism', 'border-enforcement-maximalist', 'post-liberal-conservatism', 'industrial-reshoring', 'family-policy-conservatism'] },
+  { pattern: /\b(marco rubio|rubio)\b/, tags: ['hawkish-foreign-policy', 'pro-family-tax-credit-right', 'china-hawk', 'values-conservatism', 'small-business-tax-cuts'] },
+  { pattern: /\b(glenn youngkin|youngkin)\b/, tags: ['suburban-conservative-style', 'education-parental-rights', 'pro-business-tax-cuts', 'executive-pragmatist-right', 'culture-war-lite'] },
+  { pattern: /\b(vivek ramaswamy|ramaswamy|vivek)\b/, tags: ['anti-regulation-maximalist', 'anti-dei-governance', 'agency-reduction', 'innovation-libertarian-right', 'outsider-executive-style'] },
+  { pattern: /\b(chris christie|christie)\b/, tags: ['law-and-order-moderate-right', 'fiscal-conservative', 'institutional-republican', 'anti-trump-lane', 'executive-pragmatist-right'] },
+  { pattern: /\b(tim scott|scott)\b/, tags: ['opportunity-zones', 'pro-family-tax-credit-right', 'faith-conservative', 'school-choice', 'soft-tone-conservatism'] },
+  { pattern: /\b(tom cotton|cotton)\b/, tags: ['china-hawk', 'law-and-order-maximalist', 'military-expansion', 'immigration-restrictionist', 'national-security-right'] },
+  { pattern: /\b(josh hawley|hawley)\b/, tags: ['post-liberal-conservatism', 'anti-big-tech-right', 'pro-labor-right-populism', 'culture-war-maximalist', 'industrial-reshoring'] },
+  { pattern: /\b(kristi noem|noem)\b/, tags: ['small-government-rural-right', 'culture-war-maximalist', 'fossil-fuel-defense', 'anti-federal-mandates', 'agriculture-right'] },
+  { pattern: /\b(tulsi gabbard|gabbard)\b/, tags: ['anti-intervention', 'civil-libertarian', 'anti-establishment', 'speech-maximalist', 'heterodox-populism'] },
+  { pattern: /\b(ben carson|carson)\b/, tags: ['faith-conservative', 'healthcare-market-reform', 'urban-opportunity-zones', 'school-choice', 'soft-tone-conservatism'] },
+]
 
 async function fetchJsonWithTimeout(url, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController()
@@ -329,7 +428,7 @@ function getVoteProfile(votes) {
     return {
       preferredSide: 'dem',
       preferredTrait: 'underdog',
-      topTags: ['frontrunner-friendly', 'outsider-curious'],
+      topTags: ['mixed-ideology', 'cross-pressured-voter'],
     }
   }
   const counts = votes.reduce((acc, vote) => {
@@ -349,7 +448,11 @@ function getVoteProfile(votes) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4)
     .map(([tag]) => tag)
-  return { preferredSide, preferredTrait, topTags }
+  return {
+    preferredSide,
+    preferredTrait,
+    topTags: topTags.length ? topTags : ['mixed-ideology'],
+  }
 }
 
 function updatePredictionModel(model, { predictedSide, actualSide, pickedTags = [], missedTags = [], trait }) {
@@ -393,24 +496,88 @@ function updatePredictionModel(model, { predictedSide, actualSide, pickedTags = 
 
 function getCandidateTags(candidate, side, allCandidates = []) {
   const normalized = candidate.name.toLowerCase()
+  const nameParts = normalized.split(/\s+/).filter(Boolean)
+  const firstName = nameParts[0] || 'candidate'
+  const lastName = nameParts[nameParts.length - 1] || 'candidate'
+  const initials = nameParts.map(part => part[0]).join('') || 'c'
   const rank = Math.max(1, allCandidates.findIndex(c => c.id === candidate.id) + 1)
   const topBand = Math.max(2, Math.ceil(allCandidates.length * 0.2))
+  const upperMidBand = Math.max(3, Math.ceil(allCandidates.length * 0.4))
   const longshotBand = Math.max(2, Math.ceil(allCandidates.length * 0.65))
+  const bottomBand = Math.max(2, Math.ceil(allCandidates.length * 0.85))
+  const probabilityPct = (candidate.prob || 0) * 100
   const tags = new Set([
-    side === 'dem' ? 'left-lane' : 'right-lane',
-    side === 'dem' ? 'blue-lane' : 'red-lane',
+    ...BASE_POSITION_TAGS[side],
+    side === 'dem' ? 'primary-lane-democratic' : 'primary-lane-republican',
+    `candidate-first-name-${firstName}`,
+    `candidate-last-name-${lastName}`,
+    `candidate-initials-${initials}`,
+    `candidate-name-length-${Math.min(normalized.replace(/\s+/g, '').length, 20)}`,
+    `candidate-rank-${Math.min(rank, 25)}`,
+    `candidate-prob-bucket-${Math.floor(probabilityPct / 5) * 5}-${Math.floor(probabilityPct / 5) * 5 + 4}`,
     rank <= topBand ? 'frontrunner' : 'outsider',
-    candidate.prob >= 0.2 ? 'high-odds' : 'low-odds',
+    rank <= topBand ? 'tier-alpha-frontrunner' : rank <= upperMidBand ? 'tier-beta-contender' : rank <= longshotBand ? 'tier-gamma-viable' : 'tier-delta-longshot',
+    rank >= bottomBand ? 'deep-longshot' : 'non-deep-longshot',
+    candidate.prob >= 0.35 ? 'very-high-odds' : candidate.prob >= 0.2 ? 'high-odds' : candidate.prob >= 0.1 ? 'mid-odds' : candidate.prob >= 0.05 ? 'lower-mid-odds' : 'low-odds',
     rank >= longshotBand ? 'longshot' : 'viable',
+    probabilityPct >= 30 ? 'electability-top-stratum' : probabilityPct >= 20 ? 'electability-upper-stratum' : probabilityPct >= 10 ? 'electability-middle-stratum' : probabilityPct >= 5 ? 'electability-lower-stratum' : 'electability-tail-stratum',
+    side === 'dem' ? 'ideology-spectrum-left-of-center' : 'ideology-spectrum-right-of-center',
+    side === 'dem' ? 'coalition-urban-suburban' : 'coalition-suburban-rural',
+    side === 'dem' ? `dem-tier-rank-${Math.min(rank, 12)}` : `rep-tier-rank-${Math.min(rank, 12)}`,
+    `matchup-pool-size-${Math.min(allCandidates.length || 1, 30)}`,
   ])
 
-  if (/\b(governor|newsom|whitmer|desantis|haley|abbott)\b/.test(normalized)) tags.add('governor-track')
-  if (/\b(senator|rubio|vance|warren|booker|klobuchar)\b/.test(normalized)) tags.add('senate-track')
-  if (/\b(trump|biden|harris)\b/.test(normalized)) tags.add('national-brand')
-  if (/\b(ocasio-cortez|aoc|sanders)\b/.test(normalized)) tags.add('movement-left')
-  if (/\b(desantis|vance|vivek|hawley)\b/.test(normalized)) tags.add('movement-right')
-  if (/\b(newsom|haley|youngkin)\b/.test(normalized)) tags.add('establishment')
-  if (/\b(gabbard|kennedy|ramaswamy)\b/.test(normalized)) tags.add('anti-establishment')
+  POSITION_KEYWORD_RULES.forEach((rule) => {
+    if (rule.pattern.test(normalized)) {
+      rule.tags.forEach(tag => tags.add(tag))
+    }
+  })
+
+  const movementKeywordRules = [
+    { pattern: /\b(progressive|aoc|sanders|fetterman|warren)\b/, tags: ['movement-progressive', 'economic-populist-left', 'grassroots-donor-model'] },
+    { pattern: /\b(centrist|shapiro|klobuchar|buttigieg|biden)\b/, tags: ['movement-incrementalist', 'institutionalist-style', 'cross-partisan-appeal'] },
+    { pattern: /\b(trump|desantis|vance|hawley|ramaswamy)\b/, tags: ['movement-right-populist', 'anti-establishment-right', 'media-combat-style'] },
+    { pattern: /\b(haley|rubio|youngkin|christie)\b/, tags: ['movement-establishment-right', 'donor-network-compatible', 'governing-pragmatist-right'] },
+  ]
+  movementKeywordRules.forEach(({ pattern, tags: mappedTags }) => {
+    if (pattern.test(normalized)) mappedTags.forEach(tag => tags.add(tag))
+  })
+
+  const officeTrackRules = [
+    { pattern: /\b(governor|newsom|whitmer|desantis|haley|abbott|youngkin|pritzker|noem)\b/, tag: 'office-track-governor' },
+    { pattern: /\b(senator|rubio|vance|warren|booker|klobuchar|warnock|fetterman|cotton|hawley|scott)\b/, tag: 'office-track-senator' },
+    { pattern: /\b(mayor|buttigieg)\b/, tag: 'office-track-mayor' },
+    { pattern: /\b(secretary|buttigieg|haley)\b/, tag: 'office-track-cabinet-or-diplomatic' },
+    { pattern: /\b(trump|biden|harris)\b/, tag: 'office-track-white-house-experience' },
+    { pattern: /\b(veteran|gabbard|moore)\b/, tag: 'office-track-veteran' },
+  ]
+  officeTrackRules.forEach(({ pattern, tag }) => {
+    if (pattern.test(normalized)) tags.add(tag)
+  })
+
+  const issueDomainTags = side === 'dem'
+    ? [
+        'issue-abortion-rights', 'issue-climate-transition', 'issue-healthcare-access', 'issue-worker-power', 'issue-voting-access',
+        'issue-gun-violence-prevention', 'issue-student-debt', 'issue-housing-affordability', 'issue-antitrust', 'issue-public-transit',
+      ]
+    : [
+        'issue-tax-relief', 'issue-border-security', 'issue-energy-dominance', 'issue-regulation-reduction', 'issue-parental-rights',
+        'issue-second-amendment', 'issue-federalism', 'issue-school-choice', 'issue-pro-life-policy', 'issue-law-order',
+      ]
+  issueDomainTags.forEach(tag => tags.add(tag))
+
+  const temperamentTags = [
+    rank <= topBand ? 'temperament-front-runner-pressure-tested' : 'temperament-challenger-hungry',
+    side === 'dem' ? 'temperament-coalitional-left' : 'temperament-coalitional-right',
+    candidate.prob >= 0.2 ? 'temperament-electability-message' : 'temperament-base-activation-message',
+  ]
+  temperamentTags.forEach(tag => tags.add(tag))
+
+  if (!POSITION_KEYWORD_RULES.some(rule => rule.pattern.test(normalized))) {
+    tags.add(side === 'dem' ? 'generic-dem-policy-profile' : 'generic-rep-policy-profile')
+    tags.add('policy-profile-inferred-from-party')
+    tags.add(rank <= topBand ? 'name-agnostic-frontrunner-profile' : 'name-agnostic-challenger-profile')
+  }
 
   return [...tags]
 }
@@ -1528,7 +1695,7 @@ export default function App() {
               </div>
             </div>
             <div className="stats-tags">
-              <span className="stats-tags-label">Your classes/tags</span>
+              <span className="stats-tags-label">Your position tags</span>
               <div className="stats-tag-list">
                 {(voteProfile.topTags.length ? voteProfile.topTags : ['new-user']).map(tag => (
                   <span key={tag} className="stats-tag-chip">{tag.replace(/-/g, ' ')}</span>
