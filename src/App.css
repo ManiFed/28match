@@ -599,7 +599,10 @@
 
 .prediction-waves {
   position: absolute;
-  inset: 0;
+  inset: 50%;
+  width: 100%;
+  height: 100%;
+  transform: translate(-50%, -50%);
   display: grid;
   place-items: center;
   pointer-events: none;
@@ -608,7 +611,7 @@
 
 .prediction-waves span {
   position: absolute;
-  width: clamp(180px, 23vw, 270px);
+  width: clamp(150px, 17vw, 220px);
   aspect-ratio: 1;
   border-radius: 50%;
   border: 3px solid rgba(245, 216, 106, 0.5);
@@ -757,7 +760,9 @@
   width: 210px;
   height: 210px;
   border-radius: 50%;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
+  isolation: isolate;
   border: 4px solid rgba(255, 255, 255, 0.85);
   box-shadow:
     0 0 0 8px rgba(255, 255, 255, 0.1),
@@ -776,6 +781,8 @@
   height: 100%;
   object-fit: cover;
   object-position: center top;
+  border-radius: inherit;
+  display: block;
 }
 
 .initials-avatar {
@@ -955,9 +962,17 @@
   margin-top: auto;
 }
 
+
+.prediction-prob-title {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #d8defe;
+  font-weight: 700;
+}
 .prediction-prob-track {
   width: 100%;
-  height: 10px;
+  height: 14px;
   background: #101010;
   border-radius: 999px;
   border: 1px solid #313131;
@@ -981,8 +996,32 @@
 .prediction-prob-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 0.63rem;
-  color: #c9c9c9;
+  font-size: 0.67rem;
+  color: #d9d9d9;
+  gap: 0.6rem;
+}
+
+.prediction-prob-labels span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.prediction-prob-labels strong {
+  font-weight: 700;
+}
+
+.prediction-prob-labels em {
+  font-style: normal;
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.75rem;
+}
+
+.prediction-prob-gap {
+  font-size: 0.66rem;
+  color: #f5d86a;
+  font-weight: 700;
 }
 
 .controls-title {
@@ -1351,6 +1390,10 @@
   }
   .prediction-prob-bar {
     margin-top: 0;
+  }
+  
+  .prediction-prob-title {
+    font-size: 0.54rem;
   }
   .prediction-prob-track {
     height: 7px;
