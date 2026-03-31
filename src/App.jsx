@@ -1458,10 +1458,14 @@ export default function App() {
         e.preventDefault()
         prev()
       }
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault()
+        predictVote()
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [vote, next, prev])
+  }, [vote, next, prev, predictVote])
 
   const handleArenaTouchStart = useCallback((event) => {
     const touch = event.changedTouches[0]
