@@ -742,17 +742,17 @@ function CandidatePanel({
       >
         <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
         <div className="vote-sparkle" aria-hidden="true" />
-        {hasPrediction && (
-          <div className="prediction-waves" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
-        )}
         <div
           className={`photo-wrapper ${hasPrediction ? 'prediction-photo-ring' : ''}`}
           key={animKey}
         >
+          {hasPrediction && (
+            <div className="prediction-waves" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+          )}
           <img
             src={imageUrl}
             alt={candidate.name}
@@ -1922,13 +1922,23 @@ export default function App() {
 
           {showPredictionForCurrent && (
             <div className="prediction-prob-bar" role="status" aria-live="polite">
-              <div className="prediction-prob-track">
+              <div className="prediction-prob-title">Predicted vote split</div>
+              <div className="prediction-prob-track" aria-label={`Prediction: ${(predictionFx.demChance * 100).toFixed(1)} percent ${current.dem.name} and ${(predictionFx.repChance * 100).toFixed(1)} percent ${current.rep.name}`}>
                 <div className="prediction-prob-segment prediction-prob-dem" style={{ width: `${predictionFx.demChance * 100}%` }} />
                 <div className="prediction-prob-segment prediction-prob-rep" style={{ width: `${predictionFx.repChance * 100}%` }} />
               </div>
               <div className="prediction-prob-labels">
-                <span>{current.dem.name.split(' ')[0]} {(predictionFx.demChance * 100).toFixed(1)}%</span>
-                <span>{current.rep.name.split(' ')[0]} {(predictionFx.repChance * 100).toFixed(1)}%</span>
+                <span>
+                  <strong>{current.dem.name.split(' ')[0]}</strong>
+                  <em>{(predictionFx.demChance * 100).toFixed(1)}%</em>
+                </span>
+                <span>
+                  <strong>{current.rep.name.split(' ')[0]}</strong>
+                  <em>{(predictionFx.repChance * 100).toFixed(1)}%</em>
+                </span>
+              </div>
+              <div className="prediction-prob-gap">
+                Edge: {Math.abs((predictionFx.demChance - predictionFx.repChance) * 100).toFixed(1)} pts for {predictionFx.demChance >= predictionFx.repChance ? current.dem.name.split(' ')[0] : current.rep.name.split(' ')[0]}
               </div>
             </div>
           )}
