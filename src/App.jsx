@@ -4,6 +4,7 @@ import './App.css'
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
 const SESSION_VOTES_STORAGE_KEY = 'sessionVotes'
+const USER_PREDICTION_VOTES_STORAGE_KEY = 'currentUserPredictionVotes'
 const SESSION_SKIPS_STORAGE_KEY = 'sessionSkips'
 const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
 const MATCHUP_ORDER_STORAGE_KEY = 'matchupOrder'
@@ -158,6 +159,25 @@ function loadSessionVotes() {
 function saveSessionVotes(votes) {
   try {
     window.localStorage.setItem(SESSION_VOTES_STORAGE_KEY, JSON.stringify(votes))
+  } catch {
+    // Ignore storage failures (private mode/full quota).
+  }
+}
+
+function loadUserPredictionVotes() {
+  try {
+    const raw = window.localStorage.getItem(USER_PREDICTION_VOTES_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveUserPredictionVotes(votes) {
+  try {
+    window.localStorage.setItem(USER_PREDICTION_VOTES_STORAGE_KEY, JSON.stringify(votes))
   } catch {
     // Ignore storage failures (private mode/full quota).
   }
@@ -494,6 +514,30 @@ function updatePredictionModel(model, { predictedSide, actualSide, pickedTags = 
   }
 }
 
+function buildPredictionSignals(votes) {
+  const base = {
+    side: { dem: 0.7, rep: 0.7 },
+    trait: { underdog: 0.55, favorite: 0.55 },
+    tags: {},
+    sampleSize: votes.length,
+  }
+  if (!votes.length) return base
+
+  const cappedVotes = votes.slice(-60)
+  const weighted = cappedVotes.reduce((acc, vote, index) => {
+    const recencyWeight = 0.5 + (index + 1) / cappedVotes.length
+    acc.side[vote.side] = (acc.side[vote.side] || 0) + recencyWeight
+    const trait = classifyVote(vote)
+    acc.trait[trait] = (acc.trait[trait] || 0) + recencyWeight
+    ;(vote?.pickedTags || []).forEach((tag) => {
+      acc.tags[tag] = (acc.tags[tag] || 0) + recencyWeight
+    })
+    return acc
+  }, base)
+
+  return weighted
+}
+
 function getCandidateTags(candidate, side, allCandidates = []) {
   const normalized = candidate.name.toLowerCase()
   const nameParts = normalized.split(/\s+/).filter(Boolean)
@@ -828,6 +872,7 @@ export default function App() {
   const [pollData, setPollData] = useState(null)
   const [pollLoading, setPollLoading] = useState(false)
   const [sessionVotes, setSessionVotes] = useState(() => loadSessionVotes())
+  const [userPredictionVotes, setUserPredictionVotes] = useState(() => loadUserPredictionVotes())
   const [sessionSkips, setSessionSkips] = useState(() => loadSessionSkips())
   const [showInsights, setShowInsights] = useState(false)
   const [insightsLoading, setInsightsLoading] = useState(false)
@@ -983,6 +1028,29 @@ export default function App() {
         }
         return nextVotes
       })
+      setUserPredictionVotes(prev => {
+        const pickedCandidate = side === 'dem' ? currentMatchup.dem : currentMatchup.rep
+        const pickedTags = getCandidateTags(
+          pickedCandidate,
+          side,
+          side === 'dem' ? demCandidates : repCandidates,
+        )
+        const nextVotes = [
+          ...prev,
+          {
+            key,
+            side,
+            demName: currentMatchup.dem.name,
+            repName: currentMatchup.rep.name,
+            demProb: currentMatchup.dem.prob,
+            repProb: currentMatchup.rep.prob,
+            pickedTags,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+        saveUserPredictionVotes(nextVotes)
+        return nextVotes
+      })
       if (predictionFx?.key === key && predictionFx?.side) {
         const pickedCandidate = side === 'dem' ? currentMatchup.dem : currentMatchup.rep
         const skippedCandidate = side === 'dem' ? currentMatchup.rep : currentMatchup.dem
@@ -1041,20 +1109,21 @@ export default function App() {
   }, [activeIdx, activeRecommendationType, demCandidates, matchups, predictionFx, repCandidates, voteAdvancePending, votedKeys])
 
   const predictVote = useCallback(() => {
-    if (!sessionVotes.length) {
+    if (!userPredictionVotes.length) {
       setLiveMessage('Vote on at least one matchup first so a prediction can be made.')
       return
     }
     const activeMatchup = matchups[activeIdx] ?? matchups[0]
     if (!activeMatchup) return
-    const profile = getVoteProfile(sessionVotes)
+    const profile = getVoteProfile(userPredictionVotes)
+    const predictionSignals = buildPredictionSignals(userPredictionVotes)
     const demTags = getCandidateTags(activeMatchup.dem, 'dem', demCandidates)
     const repTags = getCandidateTags(activeMatchup.rep, 'rep', repCandidates)
     const demTagScore = demTags.reduce((acc, tag) => (
-      acc + (profile.topTags.includes(tag) ? 1 : 0) + (predictionModel.tagBias?.[tag] || 0)
+      acc + (profile.topTags.includes(tag) ? 0.45 : 0) + (predictionModel.tagBias?.[tag] || 0) + (predictionSignals.tags?.[tag] || 0) * 0.08
     ), 0)
     const repTagScore = repTags.reduce((acc, tag) => (
-      acc + (profile.topTags.includes(tag) ? 1 : 0) + (predictionModel.tagBias?.[tag] || 0)
+      acc + (profile.topTags.includes(tag) ? 0.45 : 0) + (predictionModel.tagBias?.[tag] || 0) + (predictionSignals.tags?.[tag] || 0) * 0.08
     ), 0)
     const favoredByTrait = profile.preferredTrait === 'underdog'
       ? activeMatchup.dem.prob <= activeMatchup.rep.prob
@@ -1072,14 +1141,22 @@ export default function App() {
           dem: activeMatchup.dem.prob >= activeMatchup.rep.prob ? 1 : -1,
           rep: activeMatchup.rep.prob >= activeMatchup.dem.prob ? 1 : -1,
         }
-    const demScore = demTagScore + (predictionModel.sideBias?.dem || 0) + favoredTraitScore.dem + (predictionModel.traitBias?.[profile.preferredTrait] || 0)
-    const repScore = repTagScore + (predictionModel.sideBias?.rep || 0) + favoredTraitScore.rep + (predictionModel.traitBias?.[profile.preferredTrait] || 0)
+    const sideTotal = (predictionSignals.side.dem || 0) + (predictionSignals.side.rep || 0) || 1
+    const traitTotal = (predictionSignals.trait.underdog || 0) + (predictionSignals.trait.favorite || 0) || 1
+    const demSideBias = ((predictionSignals.side.dem || 0) / sideTotal) - 0.5
+    const repSideBias = ((predictionSignals.side.rep || 0) / sideTotal) - 0.5
+    const preferredTraitBias = ((predictionSignals.trait[profile.preferredTrait] || 0) / traitTotal) - 0.5
+    const demScore = demTagScore + (predictionModel.sideBias?.dem || 0) + favoredTraitScore.dem + (predictionModel.traitBias?.[profile.preferredTrait] || 0) + (demSideBias * 3.2) + (preferredTraitBias * 1.4)
+    const repScore = repTagScore + (predictionModel.sideBias?.rep || 0) + favoredTraitScore.rep + (predictionModel.traitBias?.[profile.preferredTrait] || 0) + (repSideBias * 3.2) + (preferredTraitBias * 1.4)
     const maxScore = Math.max(demScore, repScore)
     const demExp = Math.exp(demScore - maxScore)
     const repExp = Math.exp(repScore - maxScore)
     const totalExp = demExp + repExp || 1
-    const demChance = demExp / totalExp
-    const repChance = repExp / totalExp
+    const rawDemChance = demExp / totalExp
+    const rawRepChance = repExp / totalExp
+    const confidence = Math.min(0.85, predictionSignals.sampleSize / 18)
+    const demChance = (rawDemChance * confidence) + (0.5 * (1 - confidence))
+    const repChance = (rawRepChance * confidence) + (0.5 * (1 - confidence))
     const preferredSide = demScore === repScore ? favoredByTrait : demScore > repScore ? 'dem' : 'rep'
     setPredictionFx({
       side: preferredSide,
@@ -1090,7 +1167,7 @@ export default function App() {
     setLiveMessage(
       `Predicted pick: ${preferredSide === 'dem' ? activeMatchup.dem.name : activeMatchup.rep.name} (${(Math.max(demChance, repChance) * 100).toFixed(1)}%).`
     )
-  }, [activeIdx, demCandidates, matchups, predictionModel, repCandidates, sessionVotes])
+  }, [activeIdx, demCandidates, matchups, predictionModel, repCandidates, userPredictionVotes])
 
   const buildContrastingRecommendations = useCallback(() => {
     if (!matchups.length) return []
