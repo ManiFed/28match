@@ -3,6 +3,7 @@ import { createProxyMiddleware } from 'http-proxy-middleware'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import pg from 'pg'
+import crypto from 'crypto'
 
 const { Pool } = pg
 
@@ -27,6 +28,39 @@ const pool = new Pool(dbConfig)
 
 app.use(express.json())
 
+async function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex')
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (err, derived) => {
+      if (err) return reject(err)
+      resolve(`${salt}:${derived.toString('hex')}`)
+    })
+  })
+}
+
+async function verifyPassword(password, hash) {
+  const [salt, key] = hash.split(':')
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (err, derived) => {
+      if (err) return reject(err)
+      resolve(derived.toString('hex') === key)
+    })
+  })
+}
+
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex')
+}
+
+async function getUserFromToken(token) {
+  if (!token) return null
+  const result = await pool.query(
+    `SELECT id, username, created_at FROM users WHERE token = $1`,
+    [token]
+  )
+  return result.rows[0] || null
+}
+
 async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS matchup_vote_totals (
@@ -38,6 +72,30 @@ async function initDb() {
       dem_votes INTEGER NOT NULL DEFAULT 0,
       rep_votes INTEGER NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      token TEXT UNIQUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_votes (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      key TEXT NOT NULL,
+      side TEXT NOT NULL,
+      dem_name TEXT NOT NULL,
+      rep_name TEXT NOT NULL,
+      dem_prob REAL NOT NULL DEFAULT 0,
+      rep_prob REAL NOT NULL DEFAULT 0,
+      picked_tags JSONB NOT NULL DEFAULT '[]',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, key)
     )
   `)
 }
@@ -203,6 +261,187 @@ app.post('/api/poll/vote', async (req, res) => {
     res.json(await upsertVote({ key, side, dem, rep, weight }))
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to record vote.' })
+  }
+})
+
+// --- Auth endpoints ---
+
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password } = req.body || {}
+  if (!username || typeof username !== 'string' || username.trim().length < 3) {
+    return res.status(400).json({ error: 'Username must be at least 3 characters.' })
+  }
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' })
+  }
+  const trimmedUsername = username.trim().toLowerCase()
+  if (!/^[a-z0-9_]+$/.test(trimmedUsername)) {
+    return res.status(400).json({ error: 'Username can only contain letters, numbers, and underscores.' })
+  }
+  try {
+    const existing = await pool.query('SELECT id FROM users WHERE username = $1', [trimmedUsername])
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Username already taken.' })
+    }
+    const passwordHash = await hashPassword(password)
+    const token = generateToken()
+    const result = await pool.query(
+      `INSERT INTO users (username, password_hash, token) VALUES ($1, $2, $3) RETURNING id, username, created_at`,
+      [trimmedUsername, passwordHash, token]
+    )
+    const user = result.rows[0]
+    res.json({ user: { id: user.id, username: user.username, createdAt: user.created_at }, token })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Registration failed.' })
+  }
+})
+
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body || {}
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required.' })
+  }
+  const trimmedUsername = username.trim().toLowerCase()
+  try {
+    const result = await pool.query('SELECT id, username, password_hash, created_at FROM users WHERE username = $1', [trimmedUsername])
+    const user = result.rows[0]
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid username or password.' })
+    }
+    const valid = await verifyPassword(password, user.password_hash)
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid username or password.' })
+    }
+    const token = generateToken()
+    await pool.query('UPDATE users SET token = $1 WHERE id = $2', [token, user.id])
+    res.json({ user: { id: user.id, username: user.username, createdAt: user.created_at }, token })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Login failed.' })
+  }
+})
+
+app.get('/api/auth/me', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+  try {
+    const user = await getUserFromToken(token)
+    if (!user) return res.status(401).json({ error: 'Not authenticated.' })
+    res.json({ user: { id: user.id, username: user.username, createdAt: user.created_at } })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Auth check failed.' })
+  }
+})
+
+app.post('/api/auth/logout', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+  try {
+    if (token) {
+      await pool.query('UPDATE users SET token = NULL WHERE token = $1', [token])
+    }
+    res.json({ ok: true })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Logout failed.' })
+  }
+})
+
+// --- User vote storage ---
+
+app.get('/api/user/votes', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+  try {
+    const user = await getUserFromToken(token)
+    if (!user) return res.status(401).json({ error: 'Not authenticated.' })
+    const result = await pool.query(
+      `SELECT key, side, dem_name, rep_name, dem_prob, rep_prob, picked_tags, created_at
+       FROM user_votes WHERE user_id = $1 ORDER BY created_at ASC`,
+      [user.id]
+    )
+    const votes = result.rows.map(row => ({
+      key: row.key,
+      side: row.side,
+      demName: row.dem_name,
+      repName: row.rep_name,
+      demProb: Number(row.dem_prob),
+      repProb: Number(row.rep_prob),
+      pickedTags: row.picked_tags || [],
+      createdAt: row.created_at,
+    }))
+    res.json({ votes })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load votes.' })
+  }
+})
+
+app.post('/api/user/votes/sync', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+  const { votes } = req.body || {}
+  if (!Array.isArray(votes)) {
+    return res.status(400).json({ error: 'Votes must be an array.' })
+  }
+  try {
+    const user = await getUserFromToken(token)
+    if (!user) return res.status(401).json({ error: 'Not authenticated.' })
+    let synced = 0
+    for (const vote of votes) {
+      if (!vote?.key || !vote?.side) continue
+      await pool.query(
+        `INSERT INTO user_votes (user_id, key, side, dem_name, rep_name, dem_prob, rep_prob, picked_tags, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (user_id, key) DO NOTHING`,
+        [
+          user.id,
+          vote.key,
+          vote.side,
+          vote.demName || '',
+          vote.repName || '',
+          Number(vote.demProb) || 0,
+          Number(vote.repProb) || 0,
+          JSON.stringify(vote.pickedTags || []),
+          vote.createdAt || new Date().toISOString(),
+        ]
+      )
+      synced++
+    }
+    res.json({ synced })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to sync votes.' })
+  }
+})
+
+app.post('/api/user/votes/add', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+  const vote = req.body || {}
+  if (!vote?.key || !vote?.side) {
+    return res.status(400).json({ error: 'Invalid vote data.' })
+  }
+  try {
+    const user = await getUserFromToken(token)
+    if (!user) return res.status(401).json({ error: 'Not authenticated.' })
+    await pool.query(
+      `INSERT INTO user_votes (user_id, key, side, dem_name, rep_name, dem_prob, rep_prob, picked_tags, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (user_id, key) DO UPDATE SET
+         side = EXCLUDED.side,
+         dem_name = EXCLUDED.dem_name,
+         rep_name = EXCLUDED.rep_name,
+         dem_prob = EXCLUDED.dem_prob,
+         rep_prob = EXCLUDED.rep_prob,
+         picked_tags = EXCLUDED.picked_tags,
+         created_at = EXCLUDED.created_at`,
+      [
+        user.id,
+        vote.key,
+        vote.side,
+        vote.demName || '',
+        vote.repName || '',
+        Number(vote.demProb) || 0,
+        Number(vote.repProb) || 0,
+        JSON.stringify(vote.pickedTags || []),
+        vote.createdAt || new Date().toISOString(),
+      ]
+    )
+    res.json({ ok: true })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to save vote.' })
   }
 })
 
