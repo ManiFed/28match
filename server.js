@@ -26,7 +26,7 @@ const dbConfig = process.env.DATABASE_URL
 
 const pool = new Pool(dbConfig)
 
-app.use(express.json())
+app.use(express.json({ limit: '2mb' }))
 
 async function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex')

@@ -1569,8 +1569,8 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          votes: sessionVotes,
-          skips: sessionSkips,
+          votes: sessionVotes.slice(-200),
+          skips: sessionSkips.slice(-200),
           format: 'both',
           recommendationFeedback: recommendationEngagement,
         }),
