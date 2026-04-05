@@ -14,4 +14,6 @@ body {
   background: #0a0a0a;
   color: #fff;
   overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
