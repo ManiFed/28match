@@ -8,6 +8,7 @@ const USER_PREDICTION_VOTES_STORAGE_KEY = 'currentUserPredictionVotes'
 const SESSION_SKIPS_STORAGE_KEY = 'sessionSkips'
 const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
 const MATCHUP_ORDER_STORAGE_KEY = 'matchupOrder'
+const NAVIGATION_HISTORY_STORAGE_KEY = 'navigationHistory'
 const AUTH_TOKEN_STORAGE_KEY = 'authToken'
 const AUTH_USER_STORAGE_KEY = 'authUser'
 const ACCOUNT_DISMISSED_KEY = 'accountPromptDismissed'
@@ -431,6 +432,25 @@ function saveStoredMatchupOrder(signature, matchups) {
   try {
     const order = matchups.map(matchup => `${matchup.dem.id}-${matchup.rep.id}`)
     window.localStorage.setItem(MATCHUP_ORDER_STORAGE_KEY, JSON.stringify({ signature, order }))
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function loadNavigationHistory() {
+  try {
+    const raw = window.localStorage.getItem(NAVIGATION_HISTORY_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveNavigationHistory(history) {
+  try {
+    window.localStorage.setItem(NAVIGATION_HISTORY_STORAGE_KEY, JSON.stringify(history))
   } catch {
     // Ignore storage failures.
   }
@@ -1056,6 +1076,7 @@ export default function App() {
   const [sessionVotes, setSessionVotes] = useState(() => loadSessionVotes())
   const [userPredictionVotes, setUserPredictionVotes] = useState(() => loadUserPredictionVotes())
   const [sessionSkips, setSessionSkips] = useState(() => loadSessionSkips())
+  const [navHistory, setNavHistory] = useState(() => loadNavigationHistory())
   const [showInsights, setShowInsights] = useState(false)
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsError, setInsightsError] = useState(null)
@@ -1238,6 +1259,10 @@ export default function App() {
     saveRecommendationEngagement(recommendationEngagement)
   }, [recommendationEngagement])
 
+  useEffect(() => {
+    saveNavigationHistory(navHistory)
+  }, [navHistory])
+
   const votedKeys = useMemo(() => new Set(sessionVotes.map(vote => vote.key)), [sessionVotes])
   const allMatchupsCompleted = matchups.length > 0 && votedKeys.size >= matchups.length
 
@@ -1418,7 +1443,9 @@ export default function App() {
       if (voteAdvanceTimerRef.current) {
         window.clearTimeout(voteAdvanceTimerRef.current)
       }
+      const votedActiveIdx = activeIdx
       voteAdvanceTimerRef.current = window.setTimeout(() => {
+        setNavHistory(h => [...h, votedActiveIdx].slice(-100))
         setIdx(i => {
           const nextIdx = findNextUnvotedIndex(matchups, new Set([...votedKeys, key]), i + 1, 1)
           return nextIdx === -1 ? i : nextIdx
@@ -1697,14 +1724,23 @@ export default function App() {
 
   const prev = useCallback(() => {
     recordSkip('prev')
-    setIdx(i => {
-      const nextIdx = findNextUnvotedIndex(matchups, votedKeys, activeIdx - 1, -1)
-      return nextIdx === -1 ? i : nextIdx
+    setNavHistory(h => {
+      if (h.length > 0) {
+        setIdx(h[h.length - 1])
+        return h.slice(0, -1)
+      }
+      // No history: fall back to nearest unvoted going backward
+      setIdx(i => {
+        const nextIdx = findNextUnvotedIndex(matchups, votedKeys, activeIdx - 1, -1)
+        return nextIdx === -1 ? i : nextIdx
+      })
+      return h
     })
   }, [activeIdx, matchups, recordSkip, votedKeys])
 
   const next = useCallback(() => {
     recordSkip('next')
+    setNavHistory(h => [...h, activeIdx].slice(-100))
     setIdx(i => {
       const nextIdx = findNextUnvotedIndex(matchups, votedKeys, activeIdx + 1, 1)
       return nextIdx === -1 ? i : nextIdx
