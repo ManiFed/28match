@@ -1102,6 +1102,7 @@ export default function App() {
   const [streakFxTick, setStreakFxTick] = useState(0)
   const [badgeMessage, setBadgeMessage] = useState('')
   const [badgeFxTick, setBadgeFxTick] = useState(0)
+  const [toast, setToast] = useState({ text: '', tick: 0, type: 'default' })
   const [predictionFx, setPredictionFx] = useState({
     side: null,
     key: null,
@@ -1279,6 +1280,34 @@ export default function App() {
     return findNextUnvotedIndex(matchups, votedKeys, normalizedIdx, 1)
   }, [allMatchupsCompleted, idx, matchups, votedKeys])
 
+  const playSound = useCallback((type) => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      if (type === 'vote') {
+        osc.frequency.value = 440
+        gain.gain.setValueAtTime(0.06, ctx.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15)
+      } else if (type === 'streak') {
+        osc.frequency.value = 660
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1)
+        gain.gain.setValueAtTime(0.07, ctx.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
+      } else if (type === 'milestone') {
+        osc.frequency.value = 523
+        osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1)
+        osc.frequency.setValueAtTime(784, ctx.currentTime + 0.22)
+        gain.gain.setValueAtTime(0.08, ctx.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+      }
+      osc.start()
+      osc.stop(ctx.currentTime + 0.5)
+    } catch {}
+  }, [])
+
   const vote = useCallback(async (side, strength = 'normal') => {
     if (voteAdvancePending) return
     const currentMatchup = matchups[activeIdx]
@@ -1325,20 +1354,28 @@ export default function App() {
         })
         lastVotedSideRef.current = side
         if (nextStreak >= 3) {
-          setStreakFxTick(Date.now())
-          setLiveMessage(`${nextStreak} vote streak for ${side === 'dem' ? 'Democrats' : 'Republicans'}.`)
+          const tick = Date.now()
+          setStreakFxTick(tick)
+          const streakMsg = `🔥 ${nextStreak} in a row for ${side === 'dem' ? 'Democrats' : 'Republicans'}!`
+          setToast({ text: streakMsg, tick, type: 'streak' })
+          setLiveMessage(streakMsg)
+          playSound('streak')
         } else {
           const prefix = isStrongVote ? 'Strong vote recorded' : 'Vote recorded'
           setLiveMessage(`${prefix} for ${side === 'dem' ? currentMatchup.dem.name : currentMatchup.rep.name}.`)
+          playSound('vote')
         }
         const unlockedMilestone = BADGE_MILESTONES.find(
           threshold => nextVotes.length >= threshold && prev.length < threshold
         )
         if (unlockedMilestone) {
-          const unlockedText = `Badge unlocked: ${unlockedMilestone} votes cast`
+          const unlockedText = `🏅 ${unlockedMilestone} votes cast!`
+          const tick = Date.now()
           setBadgeMessage(unlockedText)
-          setBadgeFxTick(Date.now())
+          setBadgeFxTick(tick)
+          setToast({ text: unlockedText, tick, type: 'badge' })
           setLiveMessage(unlockedText)
+          playSound('milestone')
         }
         return nextVotes
       })
@@ -1934,6 +1971,17 @@ export default function App() {
   return (
     <div className={`app ${modeShiftFx ? 'mode-shift-fx' : ''}`}>
       <div className="sr-only" aria-live="polite" aria-atomic="true">{liveMessage}</div>
+      {toast.text && (
+        <div
+          key={toast.tick}
+          className="toast-banner"
+          role="status"
+          aria-live="polite"
+          style={{ '--toast-accent': toast.type === 'badge' ? '#f5c842' : toast.type === 'streak' ? '#ff8c42' : '#888' }}
+        >
+          {toast.text}
+        </div>
+      )}
       {/* Header */}
       <header className="app-header">
         <span className="header-title">2028 Presidential Matchups</span>
@@ -2332,6 +2380,12 @@ export default function App() {
         <div className="vs-column" role="region" aria-label="Matchup status">
           <div className="vs-text">VS</div>
 
+          {streak >= 3 && (
+            <div className="streak-badge" key={streakFxTick} aria-label={`${streak} vote streak`}>
+              🔥 {streak} streak
+            </div>
+          )}
+
           <div className="combined-prob">
             <span className="cp-pct">{(current.prob * 100).toFixed(2)}%</span>
             <span className="cp-label">matchup probability</span>
@@ -2345,6 +2399,9 @@ export default function App() {
             <button className="nav-btn" onClick={next} disabled={total <= 1} aria-label="Next">
               &#8250;
             </button>
+          </div>
+          <div className="matchup-progress-bar" aria-hidden="true">
+            <div className="matchup-progress-fill" style={{ width: `${total > 0 ? ((activeIdx + 1) / total) * 100 : 0}%` }} />
           </div>
 
           <div className="poll-card">
