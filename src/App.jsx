@@ -8,6 +8,10 @@ const USER_PREDICTION_VOTES_STORAGE_KEY = 'currentUserPredictionVotes'
 const SESSION_SKIPS_STORAGE_KEY = 'sessionSkips'
 const RECOMMENDATION_ENGAGEMENT_KEY = 'recommendationEngagement'
 const MATCHUP_ORDER_STORAGE_KEY = 'matchupOrder'
+const AUTH_TOKEN_STORAGE_KEY = 'authToken'
+const AUTH_USER_STORAGE_KEY = 'authUser'
+const ACCOUNT_DISMISSED_KEY = 'accountPromptDismissed'
+const ACCOUNT_PROMPT_VOTE_THRESHOLD = 5
 const VOTE_CONFIRMATION_MS = 500
 const STRONG_VOTE_CONFIRMATION_MS = 1000
 const PANEL_DOUBLE_CLICK_MS = 230
@@ -223,6 +227,184 @@ function saveRecommendationEngagement(engagement) {
   } catch {
     // Ignore storage failures.
   }
+}
+
+function loadAuthToken() {
+  try {
+    return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || null
+  } catch {
+    return null
+  }
+}
+
+function saveAuthToken(token) {
+  try {
+    if (token) {
+      window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token)
+    } else {
+      window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    }
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function loadAuthUser() {
+  try {
+    const raw = window.localStorage.getItem(AUTH_USER_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function saveAuthUser(user) {
+  try {
+    if (user) {
+      window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user))
+    } else {
+      window.localStorage.removeItem(AUTH_USER_STORAGE_KEY)
+    }
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function loadAccountDismissed() {
+  try {
+    return window.localStorage.getItem(ACCOUNT_DISMISSED_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveAccountDismissed(value) {
+  try {
+    window.localStorage.setItem(ACCOUNT_DISMISSED_KEY, value ? 'true' : 'false')
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+async function apiAuthFetch(url, options = {}) {
+  const token = loadAuthToken()
+  if (!token) return null
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {}),
+    },
+  })
+  return res
+}
+
+function AuthModal({ mode, onClose, onSuccess }) {
+  const [authMode, setAuthMode] = useState(mode || 'register')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login'
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), password }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Something went wrong.')
+        return
+      }
+      saveAuthToken(data.token)
+      saveAuthUser(data.user)
+      onSuccess(data.user, data.token)
+    } catch (err) {
+      setError(err.message || 'Network error.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="auth-modal-backdrop" onClick={onClose}>
+      <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="auth-modal-close" onClick={onClose} aria-label="Close">X</button>
+        <h2 className="auth-modal-title">{authMode === 'register' ? 'Create Account' : 'Log In'}</h2>
+        <p className="auth-modal-subtitle">
+          {authMode === 'register'
+            ? 'Save your votes to an account so they persist across devices.'
+            : 'Log in to load your saved votes.'}
+        </p>
+        <form onSubmit={handleSubmit} className="auth-form">
+          <label className="auth-label">
+            Username
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="auth-input"
+              autoComplete="username"
+              minLength={3}
+              required
+            />
+          </label>
+          <label className="auth-label">
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="auth-input"
+              autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+              minLength={6}
+              required
+            />
+          </label>
+          {error && <div className="auth-error">{error}</div>}
+          <button type="submit" className="auth-submit" disabled={submitting}>
+            {submitting ? 'Please wait...' : authMode === 'register' ? 'Create Account' : 'Log In'}
+          </button>
+        </form>
+        <button
+          type="button"
+          className="auth-toggle"
+          onClick={() => { setAuthMode(authMode === 'register' ? 'login' : 'register'); setError('') }}
+        >
+          {authMode === 'register' ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AccountPromptModal({ onCreateAccount, onDismiss }) {
+  return (
+    <div className="auth-modal-backdrop" onClick={onDismiss}>
+      <div className="auth-modal account-prompt-modal" onClick={(e) => e.stopPropagation()}>
+        <h2 className="auth-modal-title">Save your votes!</h2>
+        <p className="auth-modal-subtitle">
+          You've cast 5 votes! Create a free account to save your voting history across devices and browsers.
+          Without an account, your votes are only stored locally and can be lost.
+        </p>
+        <div className="account-prompt-actions">
+          <button type="button" className="auth-submit" onClick={onCreateAccount}>
+            Create Account
+          </button>
+          <button type="button" className="auth-toggle" onClick={onDismiss}>
+            Maybe later
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function getMatchupSignature(dems, reps, randomness) {
@@ -916,6 +1098,12 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [showStats, setShowStats] = useState(false)
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 700px)').matches)
+  const [authUser, setAuthUser] = useState(() => loadAuthUser())
+  const [authToken, setAuthToken] = useState(() => loadAuthToken())
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [authModalMode, setAuthModalMode] = useState('register')
+  const [showAccountPrompt, setShowAccountPrompt] = useState(false)
+  const [accountPromptDismissed, setAccountPromptDismissed] = useState(() => loadAccountDismissed())
   const requestedPhotosRef = useRef(new Set())
   const voteAdvanceTimerRef = useRef(null)
   const lastVotedSideRef = useRef(null)
@@ -927,6 +1115,107 @@ export default function App() {
     setIsMobile(mediaQuery.matches)
     mediaQuery.addEventListener('change', syncIsMobile)
     return () => mediaQuery.removeEventListener('change', syncIsMobile)
+  }, [])
+
+  // On mount, verify token and load server votes if logged in
+  useEffect(() => {
+    if (!authToken) return
+    ;(async () => {
+      try {
+        const res = await apiAuthFetch('/api/auth/me')
+        if (!res || !res.ok) {
+          setAuthUser(null)
+          setAuthToken(null)
+          saveAuthToken(null)
+          saveAuthUser(null)
+          return
+        }
+        const data = await res.json()
+        setAuthUser(data.user)
+        saveAuthUser(data.user)
+        // Load server votes and merge with local
+        const votesRes = await apiAuthFetch('/api/user/votes')
+        if (votesRes && votesRes.ok) {
+          const votesData = await votesRes.json()
+          if (Array.isArray(votesData.votes) && votesData.votes.length > 0) {
+            setSessionVotes(prev => {
+              const localKeys = new Set(prev.map(v => v.key))
+              const merged = [...prev]
+              for (const v of votesData.votes) {
+                if (!localKeys.has(v.key)) merged.push(v)
+              }
+              saveSessionVotes(merged)
+              return merged
+            })
+          }
+        }
+      } catch {
+        // Token invalid or network error, clear auth
+        setAuthUser(null)
+        setAuthToken(null)
+        saveAuthToken(null)
+        saveAuthUser(null)
+      }
+    })()
+  }, [])
+
+  const handleAuthSuccess = useCallback(async (user, token) => {
+    setAuthUser(user)
+    setAuthToken(token)
+    setShowAuthModal(false)
+    setShowAccountPrompt(false)
+    setAccountPromptDismissed(true)
+    saveAccountDismissed(true)
+    // Sync local votes to server
+    const localVotes = loadSessionVotes()
+    if (localVotes.length > 0) {
+      try {
+        await fetch('/api/user/votes/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ votes: localVotes }),
+        })
+      } catch {
+        // Sync failure is non-critical
+      }
+    }
+    // Load any votes from server that aren't local
+    try {
+      const votesRes = await fetch('/api/user/votes', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (votesRes.ok) {
+        const votesData = await votesRes.json()
+        if (Array.isArray(votesData.votes) && votesData.votes.length > 0) {
+          setSessionVotes(prev => {
+            const localKeys = new Set(prev.map(v => v.key))
+            const merged = [...prev]
+            for (const v of votesData.votes) {
+              if (!localKeys.has(v.key)) merged.push(v)
+            }
+            saveSessionVotes(merged)
+            return merged
+          })
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+  }, [])
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await apiAuthFetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // Ignore
+    }
+    setAuthUser(null)
+    setAuthToken(null)
+    saveAuthToken(null)
+    saveAuthUser(null)
   }, [])
 
   useEffect(() => {
@@ -1091,6 +1380,40 @@ export default function App() {
         }))
         setActiveRecommendationType(null)
       }
+      // Save vote to server if logged in
+      const currentToken = loadAuthToken()
+      if (currentToken) {
+        const pickedCandidate = side === 'dem' ? currentMatchup.dem : currentMatchup.rep
+        const pickedTags = getCandidateTags(
+          pickedCandidate,
+          side,
+          side === 'dem' ? demCandidates : repCandidates,
+        )
+        fetch('/api/user/votes/add', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${currentToken}`,
+          },
+          body: JSON.stringify({
+            key,
+            side,
+            demName: currentMatchup.dem.name,
+            repName: currentMatchup.rep.name,
+            demProb: currentMatchup.dem.prob,
+            repProb: currentMatchup.rep.prob,
+            pickedTags,
+            createdAt: new Date().toISOString(),
+          }),
+        }).catch(() => {})
+      }
+      // Show account prompt after threshold votes if not logged in and not dismissed
+      if (!currentToken && !accountPromptDismissed) {
+        const currentVoteCount = votedKeys.size + 1
+        if (currentVoteCount >= ACCOUNT_PROMPT_VOTE_THRESHOLD) {
+          setShowAccountPrompt(true)
+        }
+      }
       setVoteAdvancePending(true)
       if (voteAdvanceTimerRef.current) {
         window.clearTimeout(voteAdvanceTimerRef.current)
@@ -1106,7 +1429,7 @@ export default function App() {
     } finally {
       setPollLoading(false)
     }
-  }, [activeIdx, activeRecommendationType, demCandidates, matchups, predictionFx, repCandidates, voteAdvancePending, votedKeys])
+  }, [accountPromptDismissed, activeIdx, activeRecommendationType, demCandidates, matchups, predictionFx, repCandidates, voteAdvancePending, votedKeys])
 
   const predictVote = useCallback(() => {
     if (!userPredictionVotes.length) {
@@ -1579,6 +1902,20 @@ export default function App() {
       <header className="app-header">
         <span className="header-title">2028 Presidential Matchups</span>
         <div className="header-actions">
+          {authUser ? (
+            <div className="auth-header-wrap">
+              <span className="auth-username">{authUser.username}</span>
+              <button type="button" className="header-btn auth-logout-btn" onClick={handleLogout}>Log out</button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="header-btn auth-login-btn"
+              onClick={() => { setAuthModalMode('login'); setShowAuthModal(true) }}
+            >
+              Log in
+            </button>
+          )}
           {isMobile ? (
             <div className="header-menu-wrap">
               <button
@@ -2043,6 +2380,29 @@ export default function App() {
           totalVotes={pollData?.totalVotes || 0}
         />
       </main>
+
+      {showAuthModal && (
+        <AuthModal
+          mode={authModalMode}
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={handleAuthSuccess}
+        />
+      )}
+
+      {showAccountPrompt && !authUser && !showAuthModal && (
+        <AccountPromptModal
+          onCreateAccount={() => {
+            setShowAccountPrompt(false)
+            setAuthModalMode('register')
+            setShowAuthModal(true)
+          }}
+          onDismiss={() => {
+            setShowAccountPrompt(false)
+            setAccountPromptDismissed(true)
+            saveAccountDismissed(true)
+          }}
+        />
+      )}
     </div>
   )
 }
