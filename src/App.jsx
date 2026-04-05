@@ -828,7 +828,7 @@ function CandidatePanel({
               <span className="candidate-poll-value">{pollSharePct.toFixed(0)}% • {totalVotes} votes</span>
             </div>
           )}
-          <div className="vote-hint">Tap/click to vote • Double-click or hold for strong vote</div>
+          <div className="vote-hint">{isMobile ? 'Tap to vote • Hold for strong vote' : 'Tap/click to vote • Double-click or hold for strong vote'}</div>
         </div>
       </button>
     </div>
