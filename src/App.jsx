@@ -1087,6 +1087,13 @@ export default function App() {
     confidence_notes: [],
     summary: '',
   })
+
+  // Shareable Profile Card state
+  const [showShareModal, setShowShareModal] = useState(false)
+  const [shareImageUrl, setShareImageUrl] = useState(null)
+  const [shareLoading, setShareLoading] = useState(false)
+  const [shareError, setShareError] = useState(null)
+  const [shareArchetype, setShareArchetype] = useState(null)
   const [recommendationEngagement, setRecommendationEngagement] = useState(() => loadRecommendationEngagement())
   const [recommendedMatchups, setRecommendedMatchups] = useState([])
   const [activeRecommendationType, setActiveRecommendationType] = useState(null)
@@ -1634,6 +1641,89 @@ export default function App() {
       setInsightsLoading(false)
     }
   }, [buildContrastingRecommendations, recommendationEngagement, sessionSkips, sessionVotes])
+
+  const closeShareModal = useCallback(() => {
+    if (shareImageUrl) {
+      URL.revokeObjectURL(shareImageUrl)
+    }
+    setShowShareModal(false)
+    setShareImageUrl(null)
+    setShareError(null)
+    setShareArchetype(null)
+  }, [shareImageUrl])
+
+  // Clean up blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (shareImageUrl) {
+        URL.revokeObjectURL(shareImageUrl)
+      }
+    }
+  }, [])
+
+  const generateAndShowProfileShare = useCallback(async () => {
+    if (sessionVotes.length < 5) {
+      setShareError('Vote on at least 5 matchups to generate a shareable profile.')
+      setShowShareModal(true)
+      return
+    }
+
+    setShareLoading(true)
+    setShareError(null)
+    setShareImageUrl(null)
+    setShareArchetype(null)
+    setShowShareModal(true)
+
+    try {
+      const lean = computePartisanLean(sessionVotes)
+      const bubbles = getTopCandidateBubbles(sessionVotes, 16)
+
+      // Step 1: Get sharp archetype from LLM
+      const archetypeRes = await fetch('/api/share/archetype', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          votes: sessionVotes.slice(-150),
+          lean,
+          bubbles,
+        }),
+      })
+
+      const archetypeData = await archetypeRes.json()
+      if (!archetypeRes.ok) throw new Error(archetypeData.error || 'Failed to generate archetype')
+
+      const archetype = {
+        name: archetypeData.name,
+        description: archetypeData.description,
+      }
+      setShareArchetype(archetype)
+
+      // Step 2: Generate the image
+      const profileRes = await fetch('/api/share/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          votes: sessionVotes,
+          archetype,
+          lean,
+          bubbles,
+        }),
+      })
+
+      if (!profileRes.ok) {
+        const errData = await profileRes.json().catch(() => ({}))
+        throw new Error(errData.error || 'Failed to generate profile image')
+      }
+
+      const blob = await profileRes.blob()
+      const url = URL.createObjectURL(blob)
+      setShareImageUrl(url)
+    } catch (err) {
+      setShareError(err.message || 'Something went wrong while generating the image.')
+    } finally {
+      setShareLoading(false)
+    }
+  }, [sessionVotes])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2231,9 +2321,19 @@ export default function App() {
         <section className="insights-drawer">
           <div className="insights-title-row">
             <div className="insights-title">AI Political Insights</div>
-            <button type="button" className="header-btn challenge-btn" onClick={challengeBias}>
-              Challenge my bias
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className="header-btn"
+                onClick={generateAndShowProfileShare}
+                disabled={shareLoading}
+              >
+                {shareLoading ? 'Generating...' : 'Share Profile'}
+              </button>
+              <button type="button" className="header-btn challenge-btn" onClick={challengeBias}>
+                Challenge my bias
+              </button>
+            </div>
           </div>
           {insightsLoading && (
             <div className="insights-status insights-loading" role="status" aria-live="polite">
@@ -2293,6 +2393,108 @@ export default function App() {
             <div className="insights-status">Vote on a few matchups first to generate insights.</div>
           )}
         </section>
+      )}
+
+      {/* Share Profile Modal */}
+      {showShareModal && (
+        <div className="leaderboard-modal-backdrop" onClick={closeShareModal}>
+          <section
+            className="leaderboard-modal share-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Share your voter profile"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="leaderboard-modal-top">
+              <h2>Share Your 2028 Voter Profile</h2>
+              <button
+                type="button"
+                className="header-btn leaderboard-close-btn"
+                onClick={closeShareModal}
+              >
+                Close
+              </button>
+            </div>
+
+            {shareLoading && (
+              <div className="insights-status insights-loading" style={{ padding: '40px 20px' }}>
+                Generating your shareable profile card...
+              </div>
+            )}
+
+            {shareError && !shareLoading && (
+              <div className="insights-status insights-error" style={{ padding: '20px' }}>
+                {shareError}
+              </div>
+            )}
+
+            {!shareLoading && shareImageUrl && (
+              <div style={{ padding: '16px 20px 24px' }}>
+                <img
+                  src={shareImageUrl}
+                  alt="Your 2028 voter profile card"
+                  style={{ width: '100%', borderRadius: '8px', border: '1px solid #333' }}
+                />
+
+                <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="header-btn"
+                    onClick={() => {
+                      const a = document.createElement('a')
+                      a.href = shareImageUrl
+                      a.download = '28match-profile.png'
+                      document.body.appendChild(a)
+                      a.click()
+                      document.body.removeChild(a)
+                    }}
+                  >
+                    Download PNG
+                  </button>
+
+                  <button
+                    type="button"
+                    className="header-btn"
+                    onClick={async () => {
+                      try {
+                        const response = await fetch(shareImageUrl)
+                        const blob = await response.blob()
+                        await navigator.clipboard.write([
+                          new ClipboardItem({ [blob.type]: blob }),
+                        ])
+                        alert('Image copied to clipboard!')
+                      } catch (e) {
+                        alert('Could not copy image. Try downloading instead.')
+                      }
+                    }}
+                  >
+                    Copy Image
+                  </button>
+
+                  {shareArchetype && (
+                    <button
+                      type="button"
+                      className="header-btn"
+                      onClick={() => {
+                        const text = `${shareArchetype.name}\n\n${shareArchetype.description}\n\nGenerated on 28match`
+                        navigator.clipboard.writeText(text)
+                        alert('Text copied!')
+                      }}
+                    >
+                      Copy Text
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!shareLoading && !shareImageUrl && !shareError && (
+              <div className="insights-status" style={{ padding: '30px 20px' }}>
+                Preparing your profile...
+              </div>
+            )}
+          </section>
+        </div>
       )}
 
       {showLeaderboard && (
