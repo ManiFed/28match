@@ -671,7 +671,11 @@ app.post('/api/share/profile', async (req, res) => {
     res.send(buffer)
   } catch (error) {
     console.error('[share/profile] render error:', error)
-    res.status(500).json({ error: 'Failed to render profile card' })
+    res.status(500).json({ 
+      error: 'Failed to render profile card',
+      details: error.message || String(error),
+      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+    })
   }
 })
 

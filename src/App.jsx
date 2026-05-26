@@ -1690,7 +1690,9 @@ export default function App() {
       })
 
       const archetypeData = await archetypeRes.json()
-      if (!archetypeRes.ok) throw new Error(archetypeData.error || 'Failed to generate archetype')
+      if (!archetypeRes.ok) {
+        throw new Error(archetypeData.error || `Archetype API failed (${archetypeRes.status})`)
+      }
 
       const archetype = {
         name: archetypeData.name,
@@ -1712,14 +1714,20 @@ export default function App() {
 
       if (!profileRes.ok) {
         const errData = await profileRes.json().catch(() => ({}))
-        throw new Error(errData.error || 'Failed to generate profile image')
+        const message = errData.details 
+          ? `${errData.error || 'Profile render failed'}: ${errData.details}`
+          : (errData.error || `Profile image API failed (${profileRes.status})`)
+        throw new Error(message)
       }
 
       const blob = await profileRes.blob()
       const url = URL.createObjectURL(blob)
       setShareImageUrl(url)
     } catch (err) {
-      setShareError(err.message || 'Something went wrong while generating the image.')
+      // Try to give a more helpful error message
+      const message = err.message || 'Something went wrong while generating the image.'
+      setShareError(message)
+      console.error('[Share Profile] Generation failed:', err)
     } finally {
       setShareLoading(false)
     }
