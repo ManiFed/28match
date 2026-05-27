@@ -11,6 +11,37 @@ import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
+// Font cache (loaded once at startup / first render)
+let interFontBuffer = null
+
+async function loadInterFont() {
+  if (interFontBuffer) return interFontBuffer
+
+  const fontUrls = [
+    'https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.18/files/inter-latin-400-normal.woff',
+    'https://unpkg.com/@fontsource/inter@5.0.18/files/inter-latin-400-normal.woff',
+  ]
+
+  for (const url of fontUrls) {
+    try {
+      const res = await fetch(url, { timeout: 8000 })
+      if (res.ok) {
+        interFontBuffer = await res.arrayBuffer()
+        console.log('[render] Successfully loaded Inter font from', url)
+        return interFontBuffer
+      }
+    } catch (e) {
+      console.warn('[render] Font fetch failed for', url, e.message)
+    }
+  }
+
+  console.error('[render] Failed to load any fonts. Profile cards may fail to render.')
+  return null
+}
+
+// Preload font on module load (best effort)
+loadInterFont()
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = path.join(__dirname, '../.share-cache')
 
@@ -158,6 +189,11 @@ export async function renderProfileCard(payload) {
   const repPct = Math.round(lean?.repPct ?? 50)
 
   const positioned = layoutBubbles(bubbles, 1200, 630)
+
+  // Ensure font is loaded (in case first request is very fast)
+  if (!interFontBuffer) {
+    await loadInterFont()
+  }
 
   const bubbleEls = positioned.map((b, i) => {
     const isBig = b.r > 52
@@ -338,7 +374,22 @@ export async function renderProfileCard(payload) {
     {
       width: 1200,
       height: 630,
-      fonts: [],
+      fonts: interFontBuffer
+        ? [
+            {
+              name: 'Inter',
+              data: new Uint8Array(interFontBuffer),
+              weight: 400,
+              style: 'normal',
+            },
+            {
+              name: 'Inter',
+              data: new Uint8Array(interFontBuffer),
+              weight: 700,
+              style: 'normal',
+            },
+          ]
+        : [],
     }
   )
 

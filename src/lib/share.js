@@ -130,3 +130,65 @@ export function buildProfileSharePayload(votes = [], archetype = null) {
     generatedAt: new Date().toISOString(),
   };
 }
+
+/**
+ * Computes richer per-candidate support statistics.
+ * This is much better signal for the LLM than raw votes alone.
+ */
+export function computeCandidateSupportStats(votes = []) {
+  const stats = new Map();
+
+  votes.forEach(vote => {
+    const dem = vote.demName;
+    const rep = vote.repName;
+
+    // Dem candidate
+    if (!stats.has(dem)) {
+      stats.set(dem, { name: dem, party: 'dem', appearances: 0, votesFor: 0, strongSupport: 0 });
+    }
+    const demStats = stats.get(dem);
+    demStats.appearances += 1;
+    if (vote.side === 'dem') {
+      demStats.votesFor += 1;
+      if (vote.strength === 'strong') demStats.strongSupport += 1;
+    }
+
+    // Rep candidate
+    if (!stats.has(rep)) {
+      stats.set(rep, { name: rep, party: 'rep', appearances: 0, votesFor: 0, strongSupport: 0 });
+    }
+    const repStats = stats.get(rep);
+    repStats.appearances += 1;
+    if (vote.side === 'rep') {
+      repStats.votesFor += 1;
+      if (vote.strength === 'strong') repStats.strongSupport += 1;
+    }
+  });
+
+  return Array.from(stats.values())
+    .map(s => ({
+      ...s,
+      supportRate: s.appearances > 0 ? Math.round((s.votesFor / s.appearances) * 100) : 0,
+    }))
+    .sort((a, b) => b.votesFor - a.votesFor);
+}
+
+/**
+ * Prepares a much richer payload for the AI insights endpoint.
+ */
+export function prepareInsightsPayload(votes = [], skips = []) {
+  const lean = computePartisanLean(votes);
+  const candidateStats = computeCandidateSupportStats(votes);
+
+  // Separate high-signal skips (those where a prediction was shown)
+  const highSignalSkips = skips.filter(s => s.predictedSide).slice(-50);
+
+  return {
+    totalVotes: votes.length,
+    lean,
+    candidateStats,                    // Very useful aggregate view
+    recentVotes: votes.slice(-80),     // Raw recent votes for pattern detection
+    highSignalSkips,
+    hasStrongVotes: votes.some(v => v.strength === 'strong'),
+  };
+}

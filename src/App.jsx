@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './App.css'
-import { computePartisanLean, getTopCandidateBubbles, buildProfileSharePayload } from './lib/share.js'
+import { computePartisanLean, getTopCandidateBubbles, buildProfileSharePayload, prepareInsightsPayload } from './lib/share.js'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
@@ -1350,6 +1350,7 @@ export default function App() {
             demProb: currentMatchup.dem.prob,
             repProb: currentMatchup.rep.prob,
             pickedTags,
+            strength: isStrongVote ? 'strong' : 'normal',
             createdAt: new Date().toISOString(),
           },
         ]
@@ -1610,6 +1611,8 @@ export default function App() {
     setInsightsLoading(true)
     setInsightsError(null)
     try {
+      const richPayload = prepareInsightsPayload(sessionVotes, sessionSkips);
+
       const res = await fetch('/api/insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1618,6 +1621,8 @@ export default function App() {
           skips: sessionSkips.slice(-200),
           format: 'both',
           recommendationFeedback: recommendationEngagement,
+          // New richer data for better analysis
+          insightsPayload: richPayload,
         }),
       })
       const data = await res.json()
@@ -2192,6 +2197,14 @@ export default function App() {
                   <button
                     type="button"
                     className="header-btn header-menu-action"
+                    onClick={generateAndShowProfileShare}
+                    disabled={shareLoading}
+                  >
+                    {shareLoading ? 'Generating...' : 'Share Profile'}
+                  </button>
+                  <button
+                    type="button"
+                    className="header-btn header-menu-action"
                     aria-pressed={showStats}
                     onClick={() => setShowStats(s => !s)}
                   >
@@ -2281,6 +2294,14 @@ export default function App() {
               <button
                 type="button"
                 className="header-btn"
+                onClick={generateAndShowProfileShare}
+                disabled={shareLoading}
+              >
+                {shareLoading ? 'Generating...' : 'Share Profile'}
+              </button>
+              <button
+                type="button"
+                className="header-btn"
                 aria-pressed={showStats}
                 onClick={() => setShowStats(s => !s)}
               >
@@ -2329,19 +2350,9 @@ export default function App() {
         <section className="insights-drawer">
           <div className="insights-title-row">
             <div className="insights-title">AI Political Insights</div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                type="button"
-                className="header-btn"
-                onClick={generateAndShowProfileShare}
-                disabled={shareLoading}
-              >
-                {shareLoading ? 'Generating...' : 'Share Profile'}
-              </button>
-              <button type="button" className="header-btn challenge-btn" onClick={challengeBias}>
-                Challenge my bias
-              </button>
-            </div>
+            <button type="button" className="header-btn challenge-btn" onClick={challengeBias}>
+              Challenge my bias
+            </button>
           </div>
           {insightsLoading && (
             <div className="insights-status insights-loading" role="status" aria-live="polite">

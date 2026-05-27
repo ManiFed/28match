@@ -456,7 +456,7 @@ app.post('/api/insights', async (req, res) => {
     })
   }
 
-  const { votes, skips = [], format = 'text', recommendationFeedback = null } = req.body || {}
+  const { votes, skips = [], format = 'text', recommendationFeedback = null, insightsPayload = null } = req.body || {}
   if (!Array.isArray(votes) || votes.length === 0) {
     return res.status(400).json({
       error: 'Provide a non-empty votes array to generate insights.',
@@ -469,6 +469,7 @@ app.post('/api/insights', async (req, res) => {
     repName: vote?.repName,
     demProb: Number(vote?.demProb) || 0,
     repProb: Number(vote?.repProb) || 0,
+    strength: vote?.strength || 'normal',
     createdAt: vote?.createdAt,
   }))
   const trimmedSkips = Array.isArray(skips)
@@ -491,21 +492,26 @@ app.post('/api/insights', async (req, res) => {
   ].join(' ')
 
   const userPrompt = [
-    `These are a single user session's matchup votes (JSON): ${JSON.stringify(trimmedVotes)}`,
-    trimmedSkips.length
-      ? `These are skipped matchups in this session (JSON): ${JSON.stringify(trimmedSkips)}`
-      : null,
-    recommendationFeedback
-      ? `Recommendation engagement feedback (JSON): ${JSON.stringify(recommendationFeedback)}`
-      : null,
-    'Treat a skipped matchup as weak evidence the user disliked both candidates, especially when a prediction was shown and then skipped.',
-    'When writing summary_text, include at least one real-world political factor beyond app voting data (for example public profile, governing record, coalition fit, media narrative, or current national issues).',
-    'Do not invent precise facts. If uncertain, use cautious phrasing.',
+    `Here is structured data about a user's voting behavior in 2028 presidential nominee matchups:`,
+    insightsPayload
+      ? `Rich analysis data: ${JSON.stringify(insightsPayload)}`
+      : `Basic votes: ${JSON.stringify(trimmedVotes.slice(-100))}`,
+    !insightsPayload && trimmedSkips.length ? `Recent skips: ${JSON.stringify(trimmedSkips.slice(-60))}` : null,
+    recommendationFeedback ? `Engagement with recommendations: ${JSON.stringify(recommendationFeedback)}` : null,
+    '',
+    'IMPORTANT RULES FOR ANALYSIS:',
+    '- Be extremely conservative when describing negative feelings like "aversion", "dislike", or "opposition". Only mention these if the user had multiple clear opportunities to support a candidate and consistently chose not to.',
+    '- Skips are often just navigation behavior. Do NOT treat most skips as evidence of dislike unless the user repeatedly skipped a candidate even when a strong prediction favored them.',
+    '- Strong votes (when available) are more meaningful signals than normal votes.',
+    '- Focus first on what the user positively supports, second on genuine surprises, and only mention aversion when the data is unambiguous.',
+    '- When writing summary_text or bias_signals, include at least one real-world political factor (governing record, coalition fit, media narrative, etc.) when relevant.',
+    '- Do not invent patterns. If the data is thin or ambiguous, say so clearly in confidence_notes.',
+    '',
     'Return JSON with exactly these fields:',
-    'bias_signals: array of 2-4 short bullet-like strings about noticeable patterns.',
-    'surprising_votes: array of 1-3 specific unusual picks.',
-    'confidence_notes: array of 1-2 caveats about uncertainty/sample size.',
-    'Also include summary_text: one short paragraph (max 120 words) for quick reading.',
+    'bias_signals: array of 2-4 short, evidence-based observations (be cautious with negative claims).',
+    'surprising_votes: array of 1-3 specific votes that stand out from the user\'s general pattern.',
+    'confidence_notes: array of 1-2 honest caveats about data limitations or uncertainty.',
+    'summary_text: one short paragraph (max 120 words).',
   ].join('\n')
 
   try {
