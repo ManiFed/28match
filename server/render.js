@@ -251,6 +251,7 @@ export async function renderProfileCard(payload) {
           background: '#0c0c0e',
           overflow: 'hidden',
           fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+          display: 'flex',           // Required by Satori when a node has multiple children
         },
         children: [
           // Red / Blue split background
@@ -346,6 +347,7 @@ export async function renderProfileCard(payload) {
                 position: 'absolute',
                 inset: 0,
                 zIndex: 10,
+                display: 'contents',   // Wrapper only - satisfies Satori's multi-child rule without affecting layout
               },
               children: bubbleEls,
             },
