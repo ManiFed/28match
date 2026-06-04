@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './App.css'
 import { computePartisanLean, getTopCandidateBubbles, buildProfileSharePayload, prepareInsightsPayload } from './lib/share.js'
+import { fetchWikiPhoto, fallbackAvatarUrl } from './lib/candidatePhoto.js'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
@@ -551,46 +552,6 @@ async function fetchCandidates(slug, partyLabel) {
     .map(({ id, name, prob }) => ({ id, name, prob }))
 }
 
-async function fetchWikiPhoto(name) {
-  const fetchImageFromParams = async (params) => {
-    const res = await fetch(`https://en.wikipedia.org/w/api.php?${params}`)
-    if (!res.ok) return null
-    const data = await res.json()
-    const pages = Object.values(data?.query?.pages || {})
-    const page = pages.find(p => !p?.missing && !p?.pageprops?.disambiguation && p?.thumbnail?.source)
-    return page?.thumbnail?.source ?? null
-  }
-
-  try {
-    const exactMatchParams = new URLSearchParams({
-      action: 'query',
-      titles: name,
-      redirects: '1',
-      prop: 'pageimages|pageprops',
-      pithumbsize: '500',
-      format: 'json',
-      origin: '*',
-    })
-    const exactImage = await fetchImageFromParams(exactMatchParams)
-    if (exactImage) return exactImage
-
-    const searchParams = new URLSearchParams({
-      action: 'query',
-      generator: 'search',
-      gsrsearch: `${name} politician`,
-      gsrlimit: '5',
-      gsrenablerewrites: '1',
-      prop: 'pageimages|pageprops',
-      pithumbsize: '500',
-      format: 'json',
-      origin: '*',
-    })
-    return await fetchImageFromParams(searchParams)
-  } catch {
-    return null
-  }
-}
-
 function weightedShuffle(matchups) {
   return matchups
     .map((matchup) => {
@@ -827,15 +788,6 @@ function getCandidateTags(candidate, side, allCandidates = []) {
   }
 
   return [...tags]
-}
-
-function fallbackAvatarUrl(name) {
-  const params = new URLSearchParams({
-    seed: name,
-    backgroundType: 'gradientLinear',
-    size: '256',
-  })
-  return `https://api.dicebear.com/9.x/initials/svg?${params.toString()}`
 }
 
 function getWikiUrl(name) {
@@ -1681,7 +1633,18 @@ export default function App() {
 
     try {
       const lean = computePartisanLean(sessionVotes)
-      const bubbles = getTopCandidateBubbles(sessionVotes, 18)
+      const baseBubbles = getTopCandidateBubbles(sessionVotes, 18)
+      const photoEntries = await Promise.all(
+        baseBubbles.map(async (b) => {
+          const url = photos[b.name] || (await fetchWikiPhoto(b.name))
+          return [b.name, url]
+        }),
+      )
+      const sharePhotoMap = Object.fromEntries(photoEntries.filter(([, url]) => url))
+      const bubbles = baseBubbles.map((b) => ({
+        ...b,
+        photoUrl: sharePhotoMap[b.name] || null,
+      }))
 
       // Step 1: Get sharp archetype from LLM
       const archetypeRes = await fetch('/api/share/archetype', {
@@ -1736,7 +1699,7 @@ export default function App() {
     } finally {
       setShareLoading(false)
     }
-  }, [sessionVotes])
+  }, [sessionVotes, photos])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

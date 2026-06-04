@@ -118,6 +118,7 @@ export function getTopCandidateBubbles(votes = [], maxBubbles = 18) {
     party: item.party,
     votes: item.votes,
     affinity: item.affinity,
+    photoUrl: item.photoUrl ?? null,
     // Linear scale so favorites read clearly larger on the card
     size:
       spread > 0

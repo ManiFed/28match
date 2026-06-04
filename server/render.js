@@ -9,6 +9,11 @@ import crypto from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import {
+  resolveCandidatePhotoUrl,
+  loadImageAsDataUri,
+  fallbackAvatarUrl,
+} from '../src/lib/candidatePhoto.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = path.join(__dirname, '../.share-cache')
@@ -39,8 +44,8 @@ const LAYOUT = {
   descSize: 17,
   descMaxWidth: 900,
   headerBottom: 198,
-  stageMarginX: 40,
-  stageMarginBottom: 28,
+  stageMarginX: 28,
+  stageMarginBottom: 22,
 }
 
 let interFontBuffer = null
@@ -120,21 +125,21 @@ function getStageBounds() {
 }
 
 function bubbleRadius(size, stage) {
-  const maxR = Math.min(stage.width, stage.height) * 0.13
-  const minR = Math.min(stage.width, stage.height) * 0.048
+  const maxR = Math.min(stage.width, stage.height) * 0.17
+  const minR = Math.min(stage.width, stage.height) * 0.055
   return minR + (maxR - minR) * Math.min(1, Math.max(0, size))
 }
 
-function fitsInStage(x, y, r, stage) {
+function fitsInStage(x, y, r, stage, inset = 0) {
   return (
-    x - r >= stage.x &&
-    x + r <= stage.x + stage.width &&
-    y - r >= stage.y &&
-    y + r <= stage.y + stage.height
+    x - r >= stage.x + inset &&
+    x + r <= stage.x + stage.width - inset &&
+    y - r >= stage.y + inset &&
+    y + r <= stage.y + stage.height - inset
   )
 }
 
-function collides(x, y, r, placed, gap = 6) {
+function collides(x, y, r, placed, gap = 4) {
   for (const p of placed) {
     const dx = x - p.x
     const dy = y - p.y
@@ -161,6 +166,7 @@ function layoutBubbles(bubbles, stage) {
     name: first.name,
     party: first.party,
     size: first.size,
+    photoUrl: first.photoUrl || null,
   })
 
   for (let i = 1; i < sorted.length; i++) {
@@ -170,8 +176,8 @@ function layoutBubbles(bubbles, stage) {
 
     for (let seedIdx = 0; seedIdx < placed.length && !found; seedIdx++) {
       const seed = placed[seedIdx]
-      const orbit = seed.r + r + 10
-      const slots = 14 + (i % 5)
+      const orbit = seed.r + r + 8
+      const slots = 18 + (i % 6)
 
       for (let s = 0; s < slots && !found; s++) {
         const angle = (s / slots) * Math.PI * 2 + i * 0.61 + seedIdx * 0.35
@@ -179,7 +185,15 @@ function layoutBubbles(bubbles, stage) {
         const y = seed.y + Math.sin(angle) * orbit * 0.88
 
         if (fitsInStage(x, y, r, stage) && !collides(x, y, r, placed)) {
-          placed.push({ x, y, r, name: b.name, party: b.party, size: b.size })
+          placed.push({
+            x,
+            y,
+            r,
+            name: b.name,
+            party: b.party,
+            size: b.size,
+            photoUrl: b.photoUrl || null,
+          })
           found = true
         }
       }
@@ -193,12 +207,105 @@ function layoutBubbles(bubbles, stage) {
       const x = stage.x + cellW * col + cellW / 2
       const y = stage.y + stage.height * 0.72 + row * (r * 1.85)
       if (fitsInStage(x, y, r * 0.9, stage) && !collides(x, y, r * 0.9, placed)) {
-        placed.push({ x, y, r: r * 0.9, name: b.name, party: b.party, size: b.size })
+        placed.push({
+          x,
+          y,
+          r: r * 0.9,
+          name: b.name,
+          party: b.party,
+          size: b.size,
+          photoUrl: b.photoUrl || null,
+        })
       }
     }
   }
 
-  return placed
+  return applyAreaFill(scaleLayoutToFill(placed, stage), stage)
+}
+
+function applyAreaFill(placed, stage) {
+  if (!placed.length) return placed
+
+  const targetArea = stage.width * stage.height * 0.58
+  const circleArea = placed.reduce((sum, p) => sum + Math.PI * p.r * p.r, 0)
+  if (circleArea <= 0) return placed
+
+  let factor = Math.sqrt(targetArea / circleArea)
+  factor = Math.min(factor, 2.8)
+  factor = Math.max(factor, 1)
+
+  const anchorX = stage.cx
+  const anchorY = stage.cy + stage.height * 0.04
+
+  let scaled = placed.map((p) => ({
+    ...p,
+    r: p.r * factor,
+    x: anchorX + (p.x - anchorX) * factor,
+    y: anchorY + (p.y - anchorY) * factor,
+  }))
+
+  for (let i = 0; i < 10; i++) {
+    if (!scaled.some((p) => !fitsInStage(p.x, p.y, p.r, stage, 6))) break
+    const shrink = 0.96
+    scaled = scaled.map((p) => ({
+      ...p,
+      r: p.r * shrink,
+      x: anchorX + (p.x - anchorX) * shrink,
+      y: anchorY + (p.y - anchorY) * shrink,
+    }))
+  }
+
+  return scaled
+}
+
+function scaleLayoutToFill(placed, stage, targetFill = 0.98) {
+  if (!placed.length) return placed
+
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+
+  for (const p of placed) {
+    minX = Math.min(minX, p.x - p.r)
+    maxX = Math.max(maxX, p.x + p.r)
+    minY = Math.min(minY, p.y - p.r)
+    maxY = Math.max(maxY, p.y + p.r)
+  }
+
+  const boxW = Math.max(1, maxX - minX)
+  const boxH = Math.max(1, maxY - minY)
+  const targetW = stage.width * targetFill
+  const targetH = stage.height * targetFill
+  let scale = Math.min(targetW / boxW, targetH / boxH)
+  scale = Math.min(scale, 3)
+  scale = Math.max(scale, 1.05)
+
+  const boxCx = (minX + maxX) / 2
+  const boxCy = (minY + maxY) / 2
+  const targetCx = stage.cx
+  const targetCy = stage.cy + stage.height * 0.04
+
+  let scaled = placed.map((p) => ({
+    ...p,
+    r: p.r * scale,
+    x: targetCx + (p.x - boxCx) * scale,
+    y: targetCy + (p.y - boxCy) * scale,
+  }))
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const outOfBounds = scaled.some((p) => !fitsInStage(p.x, p.y, p.r, stage, 4))
+    if (!outOfBounds) break
+    const shrink = 0.94
+    scaled = scaled.map((p) => ({
+      ...p,
+      r: p.r * shrink,
+      x: targetCx + (p.x - targetCx) * shrink,
+      y: targetCy + (p.y - targetCy) * shrink,
+    }))
+  }
+
+  return scaled
 }
 
 function bubbleStyle(party) {
@@ -315,12 +422,45 @@ function buildHeader(archetype) {
   })
 }
 
-function buildBubbleElements(positioned) {
+async function buildBubbleElements(positioned) {
+  const photoUris = await Promise.all(
+    positioned.map(async (b) => {
+      try {
+        const url = await resolveCandidatePhotoUrl(b.name, b.photoUrl || null)
+        return await loadImageAsDataUri(url)
+      } catch {
+        try {
+          return await loadImageAsDataUri(fallbackAvatarUrl(b.name))
+        } catch {
+          return null
+        }
+      }
+    }),
+  )
+
   return positioned.map((b, i) => {
     const styles = bubbleStyle(b.party)
-    const fontSize = b.r > 54 ? 15 : b.r > 40 ? 13 : 11
-    const lastName = b.name.split(' ').pop() || b.name
-    const label = lastName.length > 14 ? `${lastName.slice(0, 12)}…` : lastName
+    const diameter = Math.round(b.r * 2)
+    const photoSrc = photoUris[i]
+
+    const face = photoSrc
+      ? el('img', {
+          src: photoSrc,
+          width: diameter,
+          height: diameter,
+          style: {
+            width: diameter,
+            height: diameter,
+            objectFit: 'cover',
+          },
+        })
+      : el('div', {
+          style: {
+            width: diameter,
+            height: diameter,
+            background: styles.background,
+          },
+        })
 
     return el('div', {
       key: i,
@@ -328,34 +468,21 @@ function buildBubbleElements(positioned) {
         position: 'absolute',
         left: b.x - b.r,
         top: b.y - b.r,
-        width: b.r * 2,
-        height: b.r * 2,
+        width: diameter,
+        height: diameter,
         borderRadius: 9999,
-        background: styles.background,
+        overflow: 'hidden',
         border: styles.border,
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        boxShadow: '0 5px 20px rgba(0,0,0,0.28)',
+        boxShadow: '0 6px 22px rgba(0,0,0,0.35)',
       },
-      children: el('div', {
-        style: {
-          fontSize,
-          fontWeight: 700,
-          color: styles.color,
-          textAlign: 'center',
-          paddingLeft: 6,
-          paddingRight: 6,
-          lineHeight: 1.05,
-        },
-        children: label,
-      }),
+      children: face,
     })
   })
 }
 
 export async function renderProfileCard(payload) {
-  const key = createCacheKey({ type: 'profile-v3', ...payload })
+  const key = createCacheKey({ type: 'profile-v5', ...payload })
 
   const cached = await getCachedImage(key)
   if (cached) {
@@ -369,7 +496,7 @@ export async function renderProfileCard(payload) {
 
   const stage = getStageBounds()
   const positioned = layoutBubbles(bubbles, stage)
-  const bubbleEls = buildBubbleElements(positioned)
+  const bubbleEls = await buildBubbleElements(positioned)
 
   const tree = el('div', {
     style: {
