@@ -64,33 +64,36 @@ export function computePartisanLean(votes = []) {
 export function computeCandidateAffinities(votes = []) {
   if (!votes.length) return [];
 
+  /** @type {Map<string, { name: string, party: 'dem' | 'rep', votes: number }>} */
   const counts = new Map();
 
   for (const vote of votes) {
-    const demName = vote.demName;
-    const repName = vote.repName;
-
     if (vote.side === 'dem') {
-      counts.set(demName, (counts.get(demName) || 0) + 1);
-    } else {
-      counts.set(repName, (counts.get(repName) || 0) + 1);
+      const name = vote.demName;
+      const prev = counts.get(name);
+      counts.set(name, {
+        name,
+        party: 'dem',
+        votes: (prev?.votes || 0) + 1,
+      });
+    } else if (vote.side === 'rep') {
+      const name = vote.repName;
+      const prev = counts.get(name);
+      counts.set(name, {
+        name,
+        party: 'rep',
+        votes: (prev?.votes || 0) + 1,
+      });
     }
   }
 
-  // Convert to array and compute normalized affinity
-  const affinities = Array.from(counts.entries()).map(([name, voteCount]) => {
-    // For now we treat all candidates equally regardless of party for sizing.
-    // We can add party later if needed for coloring bubbles.
-    const affinity = Math.sqrt(voteCount); // sqrt gives nice visual scaling for "a lot" of bubbles
+  const affinities = Array.from(counts.values()).map(({ name, party, votes: voteCount }) => ({
+    name,
+    party,
+    votes: voteCount,
+    affinity: voteCount,
+  }));
 
-    return {
-      name,
-      votes: voteCount,
-      affinity: Number(affinity.toFixed(2)),
-    };
-  });
-
-  // Sort by affinity descending
   affinities.sort((a, b) => b.affinity - a.affinity);
 
   return affinities;
@@ -107,11 +110,19 @@ export function getTopCandidateBubbles(votes = [], maxBubbles = 18) {
   if (!top.length) return [];
 
   const maxAffinity = top[0].affinity;
+  const minAffinity = top[top.length - 1].affinity;
+  const spread = maxAffinity - minAffinity;
 
   return top.map((item) => ({
-    ...item,
-    // Normalized size from ~0.35 to 1.0 for visual variety
-    size: maxAffinity > 0 ? Math.max(0.35, item.affinity / maxAffinity) : 0.5,
+    name: item.name,
+    party: item.party,
+    votes: item.votes,
+    affinity: item.affinity,
+    // Linear scale so favorites read clearly larger on the card
+    size:
+      spread > 0
+        ? 0.32 + 0.68 * ((item.affinity - minAffinity) / spread)
+        : 1,
   }));
 }
 

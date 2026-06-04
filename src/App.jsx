@@ -1681,7 +1681,7 @@ export default function App() {
 
     try {
       const lean = computePartisanLean(sessionVotes)
-      const bubbles = getTopCandidateBubbles(sessionVotes, 16)
+      const bubbles = getTopCandidateBubbles(sessionVotes, 18)
 
       // Step 1: Get sharp archetype from LLM
       const archetypeRes = await fetch('/api/share/archetype', {
