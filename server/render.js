@@ -124,188 +124,49 @@ function getStageBounds() {
   return { x, y, width, height, cx: x + width / 2, cy: y + height / 2 }
 }
 
-function bubbleRadius(size, stage) {
-  const maxR = Math.min(stage.width, stage.height) * 0.17
-  const minR = Math.min(stage.width, stage.height) * 0.055
-  return minR + (maxR - minR) * Math.min(1, Math.max(0, size))
-}
-
-function fitsInStage(x, y, r, stage, inset = 0) {
-  return (
-    x - r >= stage.x + inset &&
-    x + r <= stage.x + stage.width - inset &&
-    y - r >= stage.y + inset &&
-    y + r <= stage.y + stage.height - inset
-  )
-}
-
-function collides(x, y, r, placed, gap = 4) {
-  for (const p of placed) {
-    const dx = x - p.x
-    const dy = y - p.y
-    if (Math.hypot(dx, dy) < p.r + r + gap) return true
-  }
-  return false
-}
-
 /**
- * Pack circles into the lower stage only (never under the header).
+ * Grid across the full bubble stage so portraits spread wide (not a diagonal chain).
  */
 function layoutBubbles(bubbles, stage) {
   if (!bubbles?.length) return []
 
   const sorted = [...bubbles].sort((a, b) => b.size - a.size)
+  const n = sorted.length
+  const aspect = stage.width / Math.max(stage.height, 1)
+
+  let cols = Math.ceil(Math.sqrt(n * aspect))
+  cols = Math.max(2, Math.min(cols, n))
+  const rows = Math.ceil(n / cols)
+
+  const cellW = stage.width / cols
+  const cellH = stage.height / rows
+  const pad = 8
   const placed = []
 
-  const first = sorted[0]
-  const r0 = bubbleRadius(first.size, stage)
-  placed.push({
-    x: stage.cx,
-    y: stage.cy + stage.height * 0.12,
-    r: r0,
-    name: first.name,
-    party: first.party,
-    size: first.size,
-    photoUrl: first.photoUrl || null,
-  })
-
-  for (let i = 1; i < sorted.length; i++) {
+  for (let i = 0; i < n; i++) {
     const b = sorted[i]
-    const r = bubbleRadius(b.size, stage)
-    let found = false
+    const row = Math.floor(i / cols)
+    const colInRow = i - row * cols
+    const itemsInRow = Math.min(cols, n - row * cols)
+    const rowOffset = (cols - itemsInRow) / 2
 
-    for (let seedIdx = 0; seedIdx < placed.length && !found; seedIdx++) {
-      const seed = placed[seedIdx]
-      const orbit = seed.r + r + 8
-      const slots = 18 + (i % 6)
+    const r = Math.min(cellW, cellH) * (0.24 + 0.68 * b.size) - pad
+    const x = stage.x + cellW * (colInRow + rowOffset + 0.5)
+    const y = stage.y + cellH * (row + 0.5)
 
-      for (let s = 0; s < slots && !found; s++) {
-        const angle = (s / slots) * Math.PI * 2 + i * 0.61 + seedIdx * 0.35
-        const x = seed.x + Math.cos(angle) * orbit
-        const y = seed.y + Math.sin(angle) * orbit * 0.88
-
-        if (fitsInStage(x, y, r, stage) && !collides(x, y, r, placed)) {
-          placed.push({
-            x,
-            y,
-            r,
-            name: b.name,
-            party: b.party,
-            size: b.size,
-            photoUrl: b.photoUrl || null,
-          })
-          found = true
-        }
-      }
-    }
-
-    if (!found) {
-      const cols = 7
-      const col = (i - 1) % cols
-      const row = Math.floor((i - 1) / cols)
-      const cellW = stage.width / cols
-      const x = stage.x + cellW * col + cellW / 2
-      const y = stage.y + stage.height * 0.72 + row * (r * 1.85)
-      if (fitsInStage(x, y, r * 0.9, stage) && !collides(x, y, r * 0.9, placed)) {
-        placed.push({
-          x,
-          y,
-          r: r * 0.9,
-          name: b.name,
-          party: b.party,
-          size: b.size,
-          photoUrl: b.photoUrl || null,
-        })
-      }
-    }
+    placed.push({
+      x,
+      y,
+      r: Math.max(r, 28),
+      name: b.name,
+      party: b.party,
+      size: b.size,
+      photoDataUri: b.photoDataUri || null,
+      photoUrl: b.photoUrl || null,
+    })
   }
 
-  return applyAreaFill(scaleLayoutToFill(placed, stage), stage)
-}
-
-function applyAreaFill(placed, stage) {
-  if (!placed.length) return placed
-
-  const targetArea = stage.width * stage.height * 0.58
-  const circleArea = placed.reduce((sum, p) => sum + Math.PI * p.r * p.r, 0)
-  if (circleArea <= 0) return placed
-
-  let factor = Math.sqrt(targetArea / circleArea)
-  factor = Math.min(factor, 2.8)
-  factor = Math.max(factor, 1)
-
-  const anchorX = stage.cx
-  const anchorY = stage.cy + stage.height * 0.04
-
-  let scaled = placed.map((p) => ({
-    ...p,
-    r: p.r * factor,
-    x: anchorX + (p.x - anchorX) * factor,
-    y: anchorY + (p.y - anchorY) * factor,
-  }))
-
-  for (let i = 0; i < 10; i++) {
-    if (!scaled.some((p) => !fitsInStage(p.x, p.y, p.r, stage, 6))) break
-    const shrink = 0.96
-    scaled = scaled.map((p) => ({
-      ...p,
-      r: p.r * shrink,
-      x: anchorX + (p.x - anchorX) * shrink,
-      y: anchorY + (p.y - anchorY) * shrink,
-    }))
-  }
-
-  return scaled
-}
-
-function scaleLayoutToFill(placed, stage, targetFill = 0.98) {
-  if (!placed.length) return placed
-
-  let minX = Infinity
-  let maxX = -Infinity
-  let minY = Infinity
-  let maxY = -Infinity
-
-  for (const p of placed) {
-    minX = Math.min(minX, p.x - p.r)
-    maxX = Math.max(maxX, p.x + p.r)
-    minY = Math.min(minY, p.y - p.r)
-    maxY = Math.max(maxY, p.y + p.r)
-  }
-
-  const boxW = Math.max(1, maxX - minX)
-  const boxH = Math.max(1, maxY - minY)
-  const targetW = stage.width * targetFill
-  const targetH = stage.height * targetFill
-  let scale = Math.min(targetW / boxW, targetH / boxH)
-  scale = Math.min(scale, 3)
-  scale = Math.max(scale, 1.05)
-
-  const boxCx = (minX + maxX) / 2
-  const boxCy = (minY + maxY) / 2
-  const targetCx = stage.cx
-  const targetCy = stage.cy + stage.height * 0.04
-
-  let scaled = placed.map((p) => ({
-    ...p,
-    r: p.r * scale,
-    x: targetCx + (p.x - boxCx) * scale,
-    y: targetCy + (p.y - boxCy) * scale,
-  }))
-
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const outOfBounds = scaled.some((p) => !fitsInStage(p.x, p.y, p.r, stage, 4))
-    if (!outOfBounds) break
-    const shrink = 0.94
-    scaled = scaled.map((p) => ({
-      ...p,
-      r: p.r * shrink,
-      x: targetCx + (p.x - targetCx) * shrink,
-      y: targetCy + (p.y - targetCy) * shrink,
-    }))
-  }
-
-  return scaled
+  return placed
 }
 
 function bubbleStyle(party) {
@@ -422,21 +283,25 @@ function buildHeader(archetype) {
   })
 }
 
+async function resolveBubblePhotoDataUri(b) {
+  if (b.photoDataUri) return b.photoDataUri
+  try {
+    const url = await resolveCandidatePhotoUrl(b.name, b.photoUrl || null)
+    return await loadImageAsDataUri(url)
+  } catch {
+    try {
+      return await loadImageAsDataUri(fallbackAvatarUrl(b.name))
+    } catch {
+      return null
+    }
+  }
+}
+
 async function buildBubbleElements(positioned) {
-  const photoUris = await Promise.all(
-    positioned.map(async (b) => {
-      try {
-        const url = await resolveCandidatePhotoUrl(b.name, b.photoUrl || null)
-        return await loadImageAsDataUri(url)
-      } catch {
-        try {
-          return await loadImageAsDataUri(fallbackAvatarUrl(b.name))
-        } catch {
-          return null
-        }
-      }
-    }),
-  )
+  const photoUris = []
+  for (const b of positioned) {
+    photoUris.push(await resolveBubblePhotoDataUri(b))
+  }
 
   return positioned.map((b, i) => {
     const styles = bubbleStyle(b.party)
@@ -482,7 +347,7 @@ async function buildBubbleElements(positioned) {
 }
 
 export async function renderProfileCard(payload) {
-  const key = createCacheKey({ type: 'profile-v5', ...payload })
+  const key = createCacheKey({ type: 'profile-v7', ...payload })
 
   const cached = await getCachedImage(key)
   if (cached) {

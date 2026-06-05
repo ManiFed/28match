@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './App.css'
 import { computePartisanLean, getTopCandidateBubbles, buildProfileSharePayload, prepareInsightsPayload } from './lib/share.js'
-import { fetchWikiPhoto, fallbackAvatarUrl } from './lib/candidatePhoto.js'
+import { fetchWikiPhoto, fallbackAvatarUrl, embedShareBubblePhotos } from './lib/candidatePhoto.js'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
@@ -1634,17 +1634,7 @@ export default function App() {
     try {
       const lean = computePartisanLean(sessionVotes)
       const baseBubbles = getTopCandidateBubbles(sessionVotes, 18)
-      const photoEntries = await Promise.all(
-        baseBubbles.map(async (b) => {
-          const url = photos[b.name] || (await fetchWikiPhoto(b.name))
-          return [b.name, url]
-        }),
-      )
-      const sharePhotoMap = Object.fromEntries(photoEntries.filter(([, url]) => url))
-      const bubbles = baseBubbles.map((b) => ({
-        ...b,
-        photoUrl: sharePhotoMap[b.name] || null,
-      }))
+      const bubblesWithPhotos = await embedShareBubblePhotos(baseBubbles, photos)
 
       // Step 1: Get sharp archetype from LLM
       const archetypeRes = await fetch('/api/share/archetype', {
@@ -1653,7 +1643,7 @@ export default function App() {
         body: JSON.stringify({
           votes: sessionVotes.slice(-150),
           lean,
-          bubbles,
+          bubbles: baseBubbles,
         }),
       })
 
@@ -1676,7 +1666,7 @@ export default function App() {
           votes: sessionVotes,
           archetype,
           lean,
-          bubbles,
+          bubbles: bubblesWithPhotos,
         }),
       })
 
@@ -2400,7 +2390,7 @@ export default function App() {
 
             {shareLoading && (
               <div className="insights-status insights-loading" style={{ padding: '40px 20px' }}>
-                Generating your shareable profile card...
+                Loading portraits and generating your card…
               </div>
             )}
 
