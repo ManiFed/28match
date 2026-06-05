@@ -4,16 +4,67 @@
   padding: 0;
 }
 
+:root {
+  --font-sans: 'Instrument Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Syne', var(--font-sans);
+
+  --bg-base: #06060a;
+  --bg-elevated: #0e0e14;
+  --bg-surface: #14141c;
+  --bg-overlay: rgba(6, 6, 10, 0.72);
+
+  --text-primary: #f4f4f8;
+  --text-secondary: #9b9bb0;
+  --text-muted: #63637a;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --accent-gold: #f5c842;
+  --accent-gold-dim: rgba(245, 200, 66, 0.15);
+  --accent-violet: #8b7cff;
+  --accent-violet-dim: rgba(139, 124, 255, 0.12);
+
+  --dem-500: #3b7dff;
+  --dem-700: #1a4fd4;
+  --dem-glow: rgba(59, 125, 255, 0.35);
+  --rep-500: #ff4d6d;
+  --rep-700: #c41e3a;
+  --rep-glow: rgba(255, 77, 109, 0.35);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.55);
+  --shadow-glow-gold: 0 0 40px rgba(245, 200, 66, 0.12);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
 html, body, #root {
   height: 100%;
   width: 100%;
 }
 
 body {
-  font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #0a0a0a;
-  color: #fff;
+  font-family: var(--font-sans);
+  background: var(--bg-base);
+  color: var(--text-primary);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(139, 124, 255, 0.35);
+  color: #fff;
 }

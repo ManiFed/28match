@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './App.css'
 import { computePartisanLean, getTopCandidateBubbles, buildProfileSharePayload, prepareInsightsPayload } from './lib/share.js'
 import { fetchWikiPhoto, fallbackAvatarUrl, embedShareBubblePhotos } from './lib/candidatePhoto.js'
+import { shareProfileOnTwitter } from './lib/shareSocial.js'
 
 const DEM_SLUG = 'democratic-presidential-nominee-2028'
 const REP_SLUG = 'republican-presidential-nominee-2028'
@@ -822,6 +823,7 @@ function CandidatePanel({
   onVote,
   canVote,
   flashTick,
+  flashStrength = 'normal',
   predictionChance = 0,
   isMobile = false,
   pollSharePct = null,
@@ -927,7 +929,7 @@ function CandidatePanel({
   return (
     <div className="candidate-shell">
       <button
-        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? 'vote-flash' : ''}`}
+        className={`candidate-panel ${isDem ? 'panel-dem' : 'panel-rep'} ${flashTick ? (flashStrength === 'strong' ? 'vote-flash-strong' : 'vote-flash') : ''}`}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onTouchStart={handleTouchStart}
@@ -939,7 +941,9 @@ function CandidatePanel({
         aria-label={`Vote for ${candidate.name} (${isDem ? 'Democrat' : 'Republican'})`}
         style={{ '--prediction-strength': predictionChance }}
       >
-        <div className="party-tag">{isDem ? 'Democrat' : 'Republican'}</div>
+        <div className={`party-pill ${isDem ? 'party-pill-dem' : 'party-pill-rep'}`}>
+          {isDem ? 'Democrat' : 'Republican'}
+        </div>
         <div className="vote-sparkle" aria-hidden="true" />
         <div
           className={`photo-wrapper ${hasPrediction ? 'prediction-photo-ring' : ''}`}
@@ -983,7 +987,12 @@ function CandidatePanel({
               <span className="candidate-poll-value">{pollSharePct.toFixed(0)}% • {totalVotes} votes</span>
             </div>
           )}
-          <div className="vote-hint">{isMobile ? 'Tap to vote • Hold for strong vote' : 'Tap/click to vote • Double-click or hold for strong vote'}</div>
+          <span className="pick-cta" aria-hidden="true">
+            Pick {candidate.name.split(' ').slice(-1)[0]}
+          </span>
+          <div className="vote-hint">
+            {isMobile ? 'Tap · hold for 🔥 strong vote' : 'Click · double-click or hold for strong vote'}
+          </div>
         </div>
       </button>
     </div>
@@ -993,8 +1002,12 @@ function CandidatePanel({
 function LoadingScreen({ timedOut }) {
   return (
     <div className="centered-screen">
+      <div className="loading-brand" aria-hidden="true">
+        <span className="brand-mark">28</span>
+        <span className="brand-name">match</span>
+      </div>
       <div className="spinner" />
-      <p className="loading-text">Loading Polymarket data…</p>
+      <p className="loading-text">Loading live 2028 odds…</p>
       {timedOut && (
         <p className="loading-help">
           This is taking longer than expected. If the page stays blank, refresh and make sure the API server is running.
@@ -1007,11 +1020,11 @@ function LoadingScreen({ timedOut }) {
 function ErrorScreen({ message }) {
   return (
     <div className="centered-screen">
-      <div className="error-icon">!</div>
-      <h2 className="error-title">Could not load market data</h2>
+      <div className="error-icon" aria-hidden="true">!</div>
+      <h2 className="error-title">Couldn&apos;t load matchups</h2>
       <p className="error-msg">{message}</p>
       <p className="error-hint">
-        Ensure the Polymarket API is accessible and CORS is enabled, then refresh.
+        Check your connection, make sure the API server is running, then refresh the page.
       </p>
     </div>
   )
@@ -1043,6 +1056,7 @@ export default function App() {
   // Shareable Profile Card state
   const [showShareModal, setShowShareModal] = useState(false)
   const [shareImageUrl, setShareImageUrl] = useState(null)
+  const [shareImageBlob, setShareImageBlob] = useState(null)
   const [shareLoading, setShareLoading] = useState(false)
   const [shareError, setShareError] = useState(null)
   const [shareArchetype, setShareArchetype] = useState(null)
@@ -1605,6 +1619,7 @@ export default function App() {
     }
     setShowShareModal(false)
     setShareImageUrl(null)
+    setShareImageBlob(null)
     setShareError(null)
     setShareArchetype(null)
   }, [shareImageUrl])
@@ -1628,24 +1643,26 @@ export default function App() {
     setShareLoading(true)
     setShareError(null)
     setShareImageUrl(null)
+    setShareImageBlob(null)
     setShareArchetype(null)
     setShowShareModal(true)
 
     try {
       const lean = computePartisanLean(sessionVotes)
       const baseBubbles = getTopCandidateBubbles(sessionVotes, 18)
-      const bubblesWithPhotos = await embedShareBubblePhotos(baseBubbles, photos)
 
-      // Step 1: Get sharp archetype from LLM
-      const archetypeRes = await fetch('/api/share/archetype', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          votes: sessionVotes.slice(-150),
-          lean,
-          bubbles: baseBubbles,
+      const [archetypeRes, bubblesWithPhotos] = await Promise.all([
+        fetch('/api/share/archetype', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            votes: sessionVotes.slice(-150),
+            lean,
+            bubbles: baseBubbles,
+          }),
         }),
-      })
+        embedShareBubblePhotos(baseBubbles, photos),
+      ])
 
       const archetypeData = await archetypeRes.json()
       if (!archetypeRes.ok) {
@@ -1658,7 +1675,6 @@ export default function App() {
       }
       setShareArchetype(archetype)
 
-      // Step 2: Generate the image
       const profileRes = await fetch('/api/share/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1679,8 +1695,8 @@ export default function App() {
       }
 
       const blob = await profileRes.blob()
-      const url = URL.createObjectURL(blob)
-      setShareImageUrl(url)
+      setShareImageBlob(blob)
+      setShareImageUrl(URL.createObjectURL(blob))
     } catch (err) {
       // Try to give a more helpful error message
       const message = err.message || 'Something went wrong while generating the image.'
@@ -2041,7 +2057,13 @@ export default function App() {
       )}
       {/* Header */}
       <header className="app-header">
-        <span className="header-title">2028 Presidential Matchups</span>
+        <div className="brand-lockup">
+          <div className="brand-row">
+            <span className="brand-mark">28</span>
+            <span className="brand-name">match</span>
+          </div>
+          <span className="header-tagline">Who wins 2028? You decide.</span>
+        </div>
         <div className="header-actions">
           {authUser ? (
             <div className="auth-header-wrap">
@@ -2153,7 +2175,7 @@ export default function App() {
                     onClick={generateAndShowProfileShare}
                     disabled={shareLoading}
                   >
-                    {shareLoading ? 'Generating...' : 'Share Profile'}
+                    {shareLoading ? 'Generating…' : 'Share profile'}
                   </button>
                   <button
                     type="button"
@@ -2246,11 +2268,11 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className="header-btn"
+                className="header-btn header-btn-primary"
                 onClick={generateAndShowProfileShare}
                 disabled={shareLoading}
               >
-                {shareLoading ? 'Generating...' : 'Share Profile'}
+                {shareLoading ? 'Generating…' : 'Share'}
               </button>
               <button
                 type="button"
@@ -2378,7 +2400,7 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="leaderboard-modal-top">
-              <h2>Share Your 2028 Voter Profile</h2>
+              <h2>Your voter profile</h2>
               <button
                 type="button"
                 className="header-btn leaderboard-close-btn"
@@ -2389,26 +2411,45 @@ export default function App() {
             </div>
 
             {shareLoading && (
-              <div className="insights-status insights-loading" style={{ padding: '40px 20px' }}>
+              <div className="share-modal-body insights-status insights-loading">
                 Loading portraits and generating your card…
               </div>
             )}
 
             {shareError && !shareLoading && (
-              <div className="insights-status insights-error" style={{ padding: '20px' }}>
+              <div className="share-modal-body insights-status insights-error">
                 {shareError}
               </div>
             )}
 
             {!shareLoading && shareImageUrl && (
-              <div style={{ padding: '16px 20px 24px' }}>
+              <div className="share-modal-body">
                 <img
                   src={shareImageUrl}
                   alt="Your 2028 voter profile card"
-                  style={{ width: '100%', borderRadius: '8px', border: '1px solid #333' }}
+                  className="share-preview"
                 />
 
-                <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <div className="share-actions">
+                  {shareArchetype && shareImageBlob && (
+                    <button
+                      type="button"
+                      className="header-btn header-btn-primary share-twitter-btn"
+                      onClick={async () => {
+                        try {
+                          const result = await shareProfileOnTwitter(shareArchetype, shareImageBlob)
+                          if (result.method === 'intent') {
+                            setLiveMessage('Opened X — attach your downloaded profile card image to the post.')
+                          }
+                        } catch {
+                          setLiveMessage('Could not open X share. Try downloading the image instead.')
+                        }
+                      }}
+                    >
+                      Share on X
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     className="header-btn"
@@ -2461,8 +2502,8 @@ export default function App() {
             )}
 
             {!shareLoading && !shareImageUrl && !shareError && (
-              <div className="insights-status" style={{ padding: '30px 20px' }}>
-                Preparing your profile...
+              <div className="share-modal-body insights-status">
+                Preparing your profile…
               </div>
             )}
           </section>
@@ -2553,7 +2594,10 @@ export default function App() {
         />
 
         <div className="vs-column" role="region" aria-label="Matchup status">
-          <div className="vs-text">VS</div>
+          <div className="vs-badge" aria-hidden="true">VS</div>
+          <p className="matchup-names">
+            {current.dem.name.split(' ').slice(-1)[0]} vs {current.rep.name.split(' ').slice(-1)[0]}
+          </p>
 
           {streak >= 3 && (
             <div className="streak-badge" key={streakFxTick} aria-label={`${streak} vote streak`}>

@@ -92,7 +92,7 @@ export async function embedPhotoDataUri(name, hintUrl = null) {
       return await urlToDataUri(url)
     } catch {
       if (url.includes('wikimedia')) {
-        await sleep(350 * (attempt + 1))
+        await sleep(180 * (attempt + 1))
         continue
       }
       if (!url.includes('dicebear')) {
@@ -106,13 +106,26 @@ export async function embedPhotoDataUri(name, hintUrl = null) {
 }
 
 export async function embedShareBubblePhotos(bubbles, photoHints = {}) {
-  const enriched = []
-  for (const bubble of bubbles) {
-    const photoDataUri = await embedPhotoDataUri(bubble.name, photoHints[bubble.name] || null)
-    enriched.push({ ...bubble, photoDataUri: photoDataUri || null })
-    await sleep(100)
+  if (!bubbles.length) return []
+
+  const concurrency = 4
+  const results = new Array(bubbles.length)
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < bubbles.length) {
+      const i = nextIndex++
+      const bubble = bubbles[i]
+      const photoDataUri = await embedPhotoDataUri(
+        bubble.name,
+        photoHints[bubble.name] || null,
+      )
+      results[i] = { ...bubble, photoDataUri: photoDataUri || null }
+    }
   }
-  return enriched
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, bubbles.length) }, worker))
+  return results
 }
 
 const dataUriCache = new Map()
