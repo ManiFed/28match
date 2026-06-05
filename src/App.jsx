@@ -768,6 +768,7 @@ function CandidatePanel({
   canVote,
   flashTick,
   flashStrength = 'normal',
+  voteConfirming = false,
   predictionChance = 0,
   isMobile = false,
   pollSharePct = null,
@@ -881,8 +882,9 @@ function CandidatePanel({
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
         type="button"
-        disabled={!canVote}
+        disabled={!canVote && !voteConfirming}
         aria-label={`Vote for ${candidate.name} (${isDem ? 'Democrat' : 'Republican'})`}
+        aria-busy={voteConfirming || undefined}
         style={{ '--prediction-strength': predictionChance }}
       >
         <div className={`party-pill ${isDem ? 'party-pill-dem' : 'party-pill-rep'}`}>
@@ -1188,12 +1190,17 @@ export default function App() {
     const currentMatchup = matchups[normalizedIdx]
     const currentKey = currentMatchup ? `${currentMatchup.dem.id}-${currentMatchup.rep.id}` : null
 
+    // Keep showing the voted matchup during the post-vote confirmation delay.
+    if (voteAdvancePending) {
+      return normalizedIdx
+    }
+
     if (allMatchupsCompleted || (currentKey && !votedKeys.has(currentKey))) {
       return normalizedIdx
     }
 
     return findNextUnvotedIndex(matchups, votedKeys, normalizedIdx, 1)
-  }, [allMatchupsCompleted, idx, matchups, votedKeys])
+  }, [allMatchupsCompleted, idx, matchups, voteAdvancePending, votedKeys])
 
   const playSound = useCallback((type) => {
     try {
@@ -1237,7 +1244,6 @@ export default function App() {
 
     const isStrongVote = strength === 'strong'
 
-    setPollLoading(true)
     try {
       setVoteFx({ side, tick: Date.now(), strength })
       setSessionVotes(prev => {
@@ -1410,8 +1416,12 @@ export default function App() {
         setVoteAdvancePending(false)
         voteAdvanceTimerRef.current = null
       }, isStrongVote ? STRONG_VOTE_CONFIRMATION_MS : VOTE_CONFIRMATION_MS)
-    } finally {
-      setPollLoading(false)
+    } catch {
+      setVoteAdvancePending(false)
+      if (voteAdvanceTimerRef.current) {
+        window.clearTimeout(voteAdvanceTimerRef.current)
+        voteAdvanceTimerRef.current = null
+      }
     }
   }, [accountPromptDismissed, activeIdx, activeRecommendationType, demCandidates, matchups, predictionFx, repCandidates, voteAdvancePending, votedKeys])
 
@@ -2498,6 +2508,7 @@ export default function App() {
           animKey={`dem-${activeIdx}`}
           onVote={(strength) => { vote('dem', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
+          voteConfirming={voteAdvancePending}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
           predictionChance={showPredictionForCurrent ? predictionFx.demChance : 0}
           flashStrength={voteFx.side === 'dem' ? voteFx.strength : 'normal'}
@@ -2597,6 +2608,7 @@ export default function App() {
           animKey={`rep-${activeIdx}`}
           onVote={(strength) => { vote('rep', strength) }}
           canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
+          voteConfirming={voteAdvancePending}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
           predictionChance={showPredictionForCurrent ? predictionFx.repChance : 0}
           flashStrength={voteFx.side === 'rep' ? voteFx.strength : 'normal'}
