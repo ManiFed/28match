@@ -156,14 +156,16 @@ function getPartyZones(stage, demPct) {
   return { dem, rep }
 }
 
-function collides(x, y, r, placed, gap = 5) {
+const BUBBLE_GAP = 14
+
+function collides(x, y, r, placed, gap = BUBBLE_GAP) {
   for (const p of placed) {
     if (Math.hypot(x - p.x, y - p.y) < p.r + r + gap) return true
   }
   return false
 }
 
-function fitsZone(x, y, r, zone, inset = 8) {
+function fitsZone(x, y, r, zone, inset = 10) {
   return (
     x - r >= zone.x + inset &&
     x + r <= zone.x + zone.width - inset &&
@@ -172,7 +174,70 @@ function fitsZone(x, y, r, zone, inset = 8) {
   )
 }
 
-function scaleClusterToZone(placed, zone) {
+function clampBubbleToZone(p, zone, inset = 10) {
+  const minX = zone.x + inset + p.r
+  const maxX = zone.x + zone.width - inset - p.r
+  const minY = zone.y + inset + p.r
+  const maxY = zone.y + zone.height - inset - p.r
+  return {
+    ...p,
+    x: Math.min(maxX, Math.max(minX, p.x)),
+    y: Math.min(maxY, Math.max(minY, p.y)),
+  }
+}
+
+function hasOverlaps(placed, gap = BUBBLE_GAP) {
+  for (let i = 0; i < placed.length; i++) {
+    for (let j = i + 1; j < placed.length; j++) {
+      const a = placed[i]
+      const b = placed[j]
+      if (Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r + gap - 0.5) return true
+    }
+  }
+  return false
+}
+
+/** Push overlapping circles apart while keeping them inside the zone. */
+function resolveOverlaps(placed, zone, gap = BUBBLE_GAP) {
+  if (placed.length < 2) return placed.map((p) => clampBubbleToZone(p, zone))
+
+  let items = placed.map((p) => ({ ...p }))
+
+  for (let iter = 0; iter < 100; iter++) {
+    let moved = false
+
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i]
+        const b = items[j]
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const dist = Math.hypot(dx, dy) || 0.001
+        const minDist = a.r + b.r + gap
+        const overlap = minDist - dist
+
+        if (overlap > 0) {
+          const push = overlap / 2 + 0.5
+          const ux = dx / dist
+          const uy = dy / dist
+          a.x -= ux * push
+          a.y -= uy * push
+          b.x += ux * push
+          b.y += uy * push
+          moved = true
+        }
+      }
+    }
+
+    items = items.map((p) => clampBubbleToZone(p, zone))
+
+    if (!moved) break
+  }
+
+  return items
+}
+
+function fitClusterToZone(placed, zone) {
   if (!placed.length) return placed
 
   let minX = Infinity
@@ -189,11 +254,12 @@ function scaleClusterToZone(placed, zone) {
 
   const boxW = Math.max(1, maxX - minX)
   const boxH = Math.max(1, maxY - minY)
-  const pad = 12
+  const pad = 16
+  // Only scale down — upscaling was causing heavy overlap
   const scale = Math.min(
     (zone.width - pad * 2) / boxW,
     (zone.height - pad * 2) / boxH,
-    2.4,
+    1,
   )
 
   const boxCx = (minX + maxX) / 2
@@ -206,27 +272,46 @@ function scaleClusterToZone(placed, zone) {
     y: zone.cy + (p.y - boxCy) * scale,
   }))
 
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const bad = scaled.some((p) => !fitsZone(p.x, p.y, p.r, zone, 6))
-    if (!bad) break
-    const shrink = 0.94
+  scaled = resolveOverlaps(scaled, zone)
+
+  if (hasOverlaps(scaled)) {
+    const shrink = 0.92
     scaled = scaled.map((p) => ({
       ...p,
       r: p.r * shrink,
       x: zone.cx + (p.x - zone.cx) * shrink,
       y: zone.cy + (p.y - zone.cy) * shrink,
     }))
+    scaled = resolveOverlaps(scaled, zone)
   }
 
   return scaled
+}
+
+function tangentCandidates(placed, r, zone, gap = BUBBLE_GAP) {
+  const candidates = [{ x: zone.cx, y: zone.cy }]
+
+  for (const p of placed) {
+    const orbit = p.r + r + gap
+    for (let i = 0; i < 20; i++) {
+      const angle = (i / 20) * Math.PI * 2
+      candidates.push({
+        x: p.x + Math.cos(angle) * orbit,
+        y: p.y + Math.sin(angle) * orbit,
+      })
+    }
+  }
+
+  return candidates
 }
 
 function packFreeFormInZone(items, zone) {
   if (!items.length) return []
 
   const sorted = [...items].sort((a, b) => b.size - a.size)
-  const maxR = Math.min(zone.width, zone.height) * 0.36
-  const minR = Math.min(zone.width, zone.height) * 0.1
+  const countFactor = Math.max(0.72, 1 - Math.max(0, sorted.length - 4) * 0.045)
+  const maxR = Math.min(zone.width, zone.height) * 0.3 * countFactor
+  const minR = Math.min(zone.width, zone.height) * 0.09 * countFactor
   const placed = []
 
   for (let bi = 0; bi < sorted.length; bi++) {
@@ -235,21 +320,15 @@ function packFreeFormInZone(items, zone) {
     let best = null
     let bestScore = -Infinity
 
-    const candidates = []
-    const step = Math.max(16, Math.min(zone.width, zone.height) / 7)
+    const candidates = [
+      ...tangentCandidates(placed, r, zone),
+    ]
 
+    const step = Math.max(20, Math.min(zone.width, zone.height) / 6)
     for (let y = zone.y + r; y <= zone.y + zone.height - r; y += step) {
       for (let x = zone.x + r; x <= zone.x + zone.width - r; x += step) {
         candidates.push({ x, y })
       }
-    }
-
-    for (let i = 0; i < 90; i++) {
-      const t = bi * 19.17 + i * 0.73
-      candidates.push({
-        x: zone.x + r + (0.5 + 0.5 * Math.sin(t * 2.1)) * (zone.width - 2 * r),
-        y: zone.y + r + (0.5 + 0.5 * Math.cos(t * 1.6)) * (zone.height - 2 * r),
-      })
     }
 
     for (const { x, y } of candidates) {
@@ -261,9 +340,9 @@ function packFreeFormInZone(items, zone) {
         minGap = Math.min(minGap, Math.hypot(x - p.x, y - p.y) - (r + p.r))
       }
 
-      const centerPull = -Math.hypot(x - zone.cx, y - zone.cy) * 0.12
-      const packTight = placed.length ? -Math.abs(minGap - 5) * 2.2 : 50
-      const score = packTight + centerPull
+      const centerPull = -Math.hypot(x - zone.cx, y - zone.cy) * 0.08
+      const gapScore = placed.length ? minGap : BUBBLE_GAP + 20
+      const score = gapScore + centerPull
 
       if (score > bestScore) {
         bestScore = score
@@ -282,23 +361,32 @@ function packFreeFormInZone(items, zone) {
 
     if (best) {
       placed.push(best)
-    } else {
-      const angle = bi * 1.35
-      const radius = Math.min(zone.width, zone.height) * 0.22
-      placed.push({
-        x: zone.cx + Math.cos(angle) * radius,
-        y: zone.cy + Math.sin(angle) * radius * 0.75,
-        r: r * 0.88,
-        name: b.name,
-        party: b.party,
-        size: b.size,
-        photoDataUri: b.photoDataUri || null,
-        photoUrl: b.photoUrl || null,
-      })
+      continue
+    }
+
+    for (let shrink = 0.88; shrink >= 0.55; shrink -= 0.06) {
+      const rSmall = r * shrink
+      const retry = tangentCandidates(placed, rSmall, zone)
+      for (const { x, y } of retry) {
+        if (!fitsZone(x, y, rSmall, zone)) continue
+        if (collides(x, y, rSmall, placed)) continue
+        placed.push({
+          x,
+          y,
+          r: rSmall,
+          name: b.name,
+          party: b.party,
+          size: b.size,
+          photoDataUri: b.photoDataUri || null,
+          photoUrl: b.photoUrl || null,
+        })
+        break
+      }
+      if (placed[placed.length - 1]?.name === b.name) break
     }
   }
 
-  return scaleClusterToZone(placed, zone)
+  return fitClusterToZone(placed, zone)
 }
 
 /** Dem bubbles on blue (left), Rep bubbles on red (right); free-form pack per side. */
@@ -506,7 +594,7 @@ async function buildBubbleElements(positioned) {
         overflow: 'hidden',
         border: styles.border,
         display: 'flex',
-        boxShadow: '0 6px 22px rgba(0,0,0,0.35)',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.28)',
       },
       children: face,
     })
@@ -514,7 +602,7 @@ async function buildBubbleElements(positioned) {
 }
 
 export async function renderProfileCard(payload) {
-  const key = createCacheKey({ type: 'profile-v8', ...payload })
+  const key = createCacheKey({ type: 'profile-v9', ...payload })
 
   const cached = await getCachedImage(key)
   if (cached) {
