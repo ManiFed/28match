@@ -149,8 +149,16 @@ async function getStoredCandidateSummary(candidateName) {
   return result.rows[0] || null
 }
 
+const CANDIDATE_SUMMARY_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000
+
 function isBulletSummaryFormat(summary) {
   return /background\s*:/i.test(summary) && /views\s*:/i.test(summary)
+}
+
+function isCandidateSummaryFresh(createdAt) {
+  if (!createdAt) return false
+  const ageMs = Date.now() - new Date(createdAt).getTime()
+  return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < CANDIDATE_SUMMARY_MAX_AGE_MS
 }
 
 async function storeCandidateSummary(candidateName, summary) {
@@ -700,7 +708,11 @@ app.get('/api/candidate/summary', async (req, res) => {
 
   try {
     const existing = await getStoredCandidateSummary(candidateName)
-    if (existing?.summary && isBulletSummaryFormat(existing.summary)) {
+    if (
+      existing?.summary &&
+      isBulletSummaryFormat(existing.summary) &&
+      isCandidateSummaryFresh(existing.created_at)
+    ) {
       return res.json({
         name: candidateName,
         summary: existing.summary,
