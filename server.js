@@ -149,18 +149,20 @@ async function getStoredCandidateSummary(candidateName) {
   return result.rows[0] || null
 }
 
+function isBulletSummaryFormat(summary) {
+  return /background\s*:/i.test(summary) && /views\s*:/i.test(summary)
+}
+
 async function storeCandidateSummary(candidateName, summary) {
   const insertResult = await pool.query(
     `INSERT INTO candidate_summaries (candidate_name, summary)
      VALUES ($1, $2)
-     ON CONFLICT (candidate_name) DO NOTHING
+     ON CONFLICT (candidate_name) DO UPDATE
+       SET summary = EXCLUDED.summary, created_at = NOW()
      RETURNING summary, created_at`,
     [candidateName, summary]
   )
-  if (insertResult.rows[0]) {
-    return insertResult.rows[0]
-  }
-  return getStoredCandidateSummary(candidateName)
+  return insertResult.rows[0] || getStoredCandidateSummary(candidateName)
 }
 
 async function generateCandidateSummary(candidateName) {
@@ -172,16 +174,18 @@ async function generateCandidateSummary(candidateName) {
   const wikiExtract = await fetchWikipediaExtract(candidateName)
   const model = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
   const systemPrompt = [
-    'You write concise, neutral candidate background summaries for a 2028 U.S. presidential primary matchup app.',
+    'You write ultra-concise, neutral candidate blurbs for a 2028 U.S. presidential primary matchup app.',
     'Be factual and non-partisan. Do not predict who will win.',
-    'Write 2-3 short paragraphs (max 180 words total).',
-    'Return plain text only, no markdown headings or bullet lists.',
+    'Return exactly two lines in this format (no other text):',
+    '• Background: [1 medium sentence — who they are, current role, and why they matter in 2028]',
+    '• Views: [1 medium sentence — signature policy positions and political lane]',
+    'Max 55 words total. No filler, hedging, or repetition. Plain text only.',
   ].join(' ')
 
   const userPrompt = [
     `Candidate: ${candidateName}`,
     wikiExtract ? `Wikipedia intro (for grounding): ${wikiExtract.slice(0, 2500)}` : null,
-    'Summarize who they are, their political background, and why they matter in the 2028 presidential conversation.',
+    'Cover only the essentials: career background in line 1, key views in line 2.',
   ].filter(Boolean).join('\n\n')
 
   const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -696,7 +700,7 @@ app.get('/api/candidate/summary', async (req, res) => {
 
   try {
     const existing = await getStoredCandidateSummary(candidateName)
-    if (existing?.summary) {
+    if (existing?.summary && isBulletSummaryFormat(existing.summary)) {
       return res.json({
         name: candidateName,
         summary: existing.summary,

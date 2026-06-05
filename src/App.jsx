@@ -394,6 +394,20 @@ function AuthModal({ mode, onClose, onSuccess }) {
   )
 }
 
+function parseCandidateSummary(text) {
+  const backgroundMatch = text.match(
+    /(?:^|\n)\s*[-•*]?\s*Background\s*:\s*(.+?)(?=\n\s*[-•*]?\s*Views\s*:|$)/is
+  )
+  const viewsMatch = text.match(/(?:^|\n)\s*[-•*]?\s*Views\s*:\s*(.+)/is)
+  if (backgroundMatch && viewsMatch) {
+    return {
+      background: backgroundMatch[1].trim(),
+      views: viewsMatch[1].trim(),
+    }
+  }
+  return null
+}
+
 function CandidateSummaryModal({ candidateName, party, onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -433,6 +447,7 @@ function CandidateSummaryModal({ candidateName, party, onClose }) {
   }, [candidateName])
 
   const partyLabel = party === 'dem' ? 'Democrat' : party === 'rep' ? 'Republican' : null
+  const bullets = summary ? parseCandidateSummary(summary) : null
 
   return (
     <div className="candidate-summary-modal-backdrop" onClick={onClose}>
@@ -467,7 +482,19 @@ function CandidateSummaryModal({ candidateName, party, onClose }) {
           {!loading && error && (
             <div className="insights-status insights-error">{error}</div>
           )}
-          {!loading && !error && summary && (
+          {!loading && !error && summary && bullets && (
+            <ul className="candidate-summary-bullets">
+              <li>
+                <span className="candidate-summary-bullet-label">Background</span>
+                <span className="candidate-summary-bullet-text">{bullets.background}</span>
+              </li>
+              <li>
+                <span className="candidate-summary-bullet-label">Views</span>
+                <span className="candidate-summary-bullet-text">{bullets.views}</span>
+              </li>
+            </ul>
+          )}
+          {!loading && !error && summary && !bullets && (
             <p className="candidate-summary-text">{summary}</p>
           )}
         </div>

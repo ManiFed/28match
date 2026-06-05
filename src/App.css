@@ -1082,6 +1082,48 @@
   margin-bottom: 0.75rem;
 }
 
+.candidate-summary-bullets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.candidate-summary-bullets li {
+  position: relative;
+  padding-left: 1rem;
+}
+
+.candidate-summary-bullets li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-gold);
+}
+
+.candidate-summary-bullet-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.2rem;
+}
+
+.candidate-summary-bullet-text {
+  display: block;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
 .candidate-summary-text {
   margin: 0;
   font-size: 0.92rem;
