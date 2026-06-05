@@ -396,6 +396,98 @@ function AuthModal({ mode, onClose, onSuccess }) {
   )
 }
 
+function CandidateSummaryModal({ candidateName, party, onClose }) {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [summary, setSummary] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadSummary() {
+      setLoading(true)
+      setError(null)
+      setSummary('')
+      try {
+        const res = await fetch(`/api/candidate/summary?name=${encodeURIComponent(candidateName)}`)
+        const data = await res.json()
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to load summary.')
+        }
+        if (!cancelled) {
+          setSummary(data.summary || '')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || 'Failed to load summary.')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadSummary()
+    return () => {
+      cancelled = true
+    }
+  }, [candidateName])
+
+  const partyLabel = party === 'dem' ? 'Democrat' : party === 'rep' ? 'Republican' : null
+
+  return (
+    <div className="candidate-summary-modal-backdrop" onClick={onClose}>
+      <section
+        className="candidate-summary-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${candidateName} summary`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="candidate-summary-modal-top">
+          <div>
+            <h2>{candidateName}</h2>
+            {partyLabel && <p className="candidate-summary-party">{partyLabel}</p>}
+          </div>
+          <button type="button" className="header-btn candidate-summary-close-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="candidate-summary-modal-body">
+          <div className="candidate-summary-label">AI Summary</div>
+          {loading && (
+            <div className="insights-status insights-loading" role="status" aria-live="polite">
+              <span className="insights-loading-text">Generating summary</span>
+              <span className="insights-loading-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
+            </div>
+          )}
+          {!loading && error && (
+            <div className="insights-status insights-error">{error}</div>
+          )}
+          {!loading && !error && summary && (
+            <p className="candidate-summary-text">{summary}</p>
+          )}
+        </div>
+        <div className="candidate-summary-modal-footer">
+          <a
+            href={getWikiUrl(candidateName)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="header-btn header-btn-primary candidate-summary-wiki-btn"
+          >
+            Read on Wikipedia
+          </a>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function AccountPromptModal({ onCreateAccount, onDismiss }) {
   return (
     <div className="auth-modal-backdrop" onClick={onDismiss}>
@@ -773,6 +865,7 @@ function CandidatePanel({
   isMobile = false,
   pollSharePct = null,
   totalVotes = 0,
+  onOpenSummary,
 }) {
   const isDem = party === 'dem'
   const imageUrl = photo || fallbackAvatarUrl(candidate.name)
@@ -912,16 +1005,17 @@ function CandidatePanel({
         <div className="candidate-info" key={`info-${animKey}`}>
           <h2 className="candidate-name">
             {candidate.name}
-            <a
-              href={getWikiUrl(candidate.name)}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
               className="candidate-wiki-link"
-              aria-label={`${candidate.name} Wikipedia page`}
-              onClick={(e) => e.stopPropagation()}
+              aria-label={`${candidate.name} AI summary`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenSummary?.(candidate.name)
+              }}
             >
               ?
-            </a>
+            </button>
           </h2>
           <div className="prob-pill">
             <span className="prob-pct">{(candidate.prob * 100).toFixed(1)}%</span>
@@ -1036,6 +1130,7 @@ export default function App() {
   const [startupNotice, setStartupNotice] = useState('')
   const [loading, setLoading] = useState(true)
   const [showStats, setShowStats] = useState(false)
+  const [candidateSummaryModal, setCandidateSummaryModal] = useState(null)
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 700px)').matches)
   const [authUser, setAuthUser] = useState(() => loadAuthUser())
   const [authToken, setAuthToken] = useState(() => loadAuthToken())
@@ -2515,6 +2610,7 @@ export default function App() {
           isMobile={isMobile}
           pollSharePct={demVotePct}
           totalVotes={pollData?.totalVotes || 0}
+          onOpenSummary={(name) => setCandidateSummaryModal({ name, party: 'dem' })}
         />
 
         <div className="vs-column" role="region" aria-label="Matchup status">
@@ -2615,8 +2711,17 @@ export default function App() {
           isMobile={isMobile}
           pollSharePct={repVotePct}
           totalVotes={pollData?.totalVotes || 0}
+          onOpenSummary={(name) => setCandidateSummaryModal({ name, party: 'rep' })}
         />
       </main>
+
+      {candidateSummaryModal && (
+        <CandidateSummaryModal
+          candidateName={candidateSummaryModal.name}
+          party={candidateSummaryModal.party}
+          onClose={() => setCandidateSummaryModal(null)}
+        />
+      )}
 
       {showAuthModal && (
         <AuthModal

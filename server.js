@@ -101,6 +101,116 @@ async function initDb() {
       UNIQUE(user_id, key)
     )
   `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS candidate_summaries (
+      candidate_name TEXT PRIMARY KEY,
+      summary TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+}
+
+const WIKI_USER_AGENT = '28match/1.0 (candidate-summary; contact: hello@28match.app)'
+
+function normalizeCandidateName(name) {
+  return String(name || '').trim()
+}
+
+async function fetchWikipediaExtract(name) {
+  const params = new URLSearchParams({
+    action: 'query',
+    titles: name,
+    redirects: '1',
+    prop: 'extracts',
+    exintro: '1',
+    explaintext: '1',
+    format: 'json',
+  })
+
+  try {
+    const res = await fetch(`https://en.wikipedia.org/w/api.php?${params}`, {
+      headers: { 'User-Agent': WIKI_USER_AGENT },
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const pages = Object.values(data?.query?.pages || {})
+    const page = pages.find((p) => !p?.missing && p?.extract)
+    return page?.extract?.trim() || null
+  } catch {
+    return null
+  }
+}
+
+async function getStoredCandidateSummary(candidateName) {
+  const result = await pool.query(
+    `SELECT summary, created_at FROM candidate_summaries WHERE candidate_name = $1`,
+    [candidateName]
+  )
+  return result.rows[0] || null
+}
+
+async function storeCandidateSummary(candidateName, summary) {
+  const insertResult = await pool.query(
+    `INSERT INTO candidate_summaries (candidate_name, summary)
+     VALUES ($1, $2)
+     ON CONFLICT (candidate_name) DO NOTHING
+     RETURNING summary, created_at`,
+    [candidateName, summary]
+  )
+  if (insertResult.rows[0]) {
+    return insertResult.rows[0]
+  }
+  return getStoredCandidateSummary(candidateName)
+}
+
+async function generateCandidateSummary(candidateName) {
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY is missing on the server.')
+  }
+
+  const wikiExtract = await fetchWikipediaExtract(candidateName)
+  const model = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
+  const systemPrompt = [
+    'You write concise, neutral candidate background summaries for a 2028 U.S. presidential primary matchup app.',
+    'Be factual and non-partisan. Do not predict who will win.',
+    'Write 2-3 short paragraphs (max 180 words total).',
+    'Return plain text only, no markdown headings or bullet lists.',
+  ].join(' ')
+
+  const userPrompt = [
+    `Candidate: ${candidateName}`,
+    wikiExtract ? `Wikipedia intro (for grounding): ${wikiExtract.slice(0, 2500)}` : null,
+    'Summarize who they are, their political background, and why they matter in the 2028 presidential conversation.',
+  ].filter(Boolean).join('\n\n')
+
+  const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.35,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    }),
+  })
+
+  const aiData = await aiRes.json().catch(() => ({}))
+  if (!aiRes.ok) {
+    throw new Error(aiData?.error?.message || `OpenRouter request failed (${aiRes.status}).`)
+  }
+
+  const summary = aiData?.choices?.[0]?.message?.content?.trim()
+  if (!summary) {
+    throw new Error('OpenRouter returned an empty response.')
+  }
+
+  return summary
 }
 
 async function getPollSummary(key) {
@@ -575,6 +685,37 @@ app.post('/api/insights', async (req, res) => {
     res.json({ summary, model, structured })
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to generate insights.' })
+  }
+})
+
+app.get('/api/candidate/summary', async (req, res) => {
+  const candidateName = normalizeCandidateName(req.query?.name)
+  if (!candidateName) {
+    return res.status(400).json({ error: 'Candidate name is required.' })
+  }
+
+  try {
+    const existing = await getStoredCandidateSummary(candidateName)
+    if (existing?.summary) {
+      return res.json({
+        name: candidateName,
+        summary: existing.summary,
+        cached: true,
+        createdAt: existing.created_at,
+      })
+    }
+
+    const summary = await generateCandidateSummary(candidateName)
+    const stored = await storeCandidateSummary(candidateName, summary)
+
+    res.json({
+      name: candidateName,
+      summary: stored?.summary || summary,
+      cached: false,
+      createdAt: stored?.created_at || new Date().toISOString(),
+    })
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load candidate summary.' })
   }
 })
 

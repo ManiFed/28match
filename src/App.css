@@ -1003,11 +1003,102 @@
   text-decoration: none;
   background: rgba(0, 0, 0, 0.25);
   transition: background 140ms ease, transform 140ms var(--ease-out);
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .candidate-wiki-link:hover {
   background: rgba(255, 255, 255, 0.2);
   transform: scale(1.08);
+}
+
+.candidate-summary-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  padding: 1.25rem;
+  animation: fadeIn 200ms ease-out;
+}
+
+.candidate-summary-modal {
+  width: min(520px, 95vw);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  animation: modalSlideUp 280ms var(--ease-out);
+}
+
+.candidate-summary-modal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.candidate-summary-modal-top h2 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.candidate-summary-party {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.candidate-summary-close-btn {
+  flex-shrink: 0;
+}
+
+.candidate-summary-modal-body {
+  padding: 18px 20px;
+  max-height: min(50vh, 320px);
+  overflow-y: auto;
+}
+
+.candidate-summary-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.candidate-summary-text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.candidate-summary-modal-footer {
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.candidate-summary-wiki-btn {
+  text-decoration: none;
 }
 
 .prob-pill {
