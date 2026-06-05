@@ -214,7 +214,7 @@ function tagScoreForSide(tags, tagWeights, model) {
   }, 0)
 }
 
-function softmaxPair(demScore, repScore, temperature = 2.8) {
+function softmaxPair(demScore, repScore, temperature = 1.95) {
   const maxScore = Math.max(demScore, repScore)
   const demExp = Math.exp((demScore - maxScore) / temperature)
   const repExp = Math.exp((repScore - maxScore) / temperature)
@@ -223,27 +223,43 @@ function softmaxPair(demScore, repScore, temperature = 2.8) {
 }
 
 function calibrationFromHistory(votes, stats) {
-  const sampleConfidence = Math.min(0.45, Math.sqrt(votes.length / 48))
-  const tracked = stats.total >= 4
+  const sampleConfidence = Math.min(0.78, Math.sqrt(votes.length / 28))
+  const tracked = stats.total >= 3
     ? stats.correct / stats.total
     : null
   const accuracyScale = tracked === null
-    ? 0.55
-    : Math.max(0.25, Math.min(0.85, 0.35 + tracked * 0.65))
+    ? 0.72
+    : Math.max(0.4, Math.min(0.95, 0.45 + tracked * 0.55))
   return sampleConfidence * accuracyScale
 }
 
-function calibrateProbabilities(rawDem, rawRep, calibrationStrength) {
+function signalStrengthFromContext({ scoreGap, demNameBoost, repNameBoost, profile, voteCount }) {
+  let strength = 0.32 + Math.min(0.38, scoreGap / 2.8)
+  if (demNameBoost > 0 || repNameBoost > 0) strength += 0.28
+  const partyLean = Math.abs(profile.demShare - 0.5)
+  if (partyLean >= 0.12 && voteCount >= 4) {
+    strength += Math.min(0.32, partyLean * 1.15)
+  }
+  return Math.min(1, strength)
+}
+
+function calibrateProbabilities(rawDem, rawRep, calibrationStrength, signalStrength) {
   const rawEdge = rawDem - 0.5
-  const maxEdge = 0.1 + calibrationStrength * 0.12
-  const edge = Math.max(-maxEdge, Math.min(maxEdge, rawEdge * (0.35 + calibrationStrength)))
+  const strongContext = signalStrength >= 0.55
+  const maxEdge = strongContext
+    ? 0.13 + calibrationStrength * (0.1 + signalStrength * 0.22)
+    : 0.09 + calibrationStrength * 0.14
+  const edgeScale = strongContext
+    ? 0.58 + calibrationStrength * (0.35 + signalStrength * 0.4)
+    : 0.48 + calibrationStrength * 0.42
+  const edge = Math.max(-maxEdge, Math.min(maxEdge, rawEdge * edgeScale))
   const demChance = 0.5 + edge
   return { demChance, repChance: 1 - demChance }
 }
 
 /**
  * Predict which side the user will pick in a Dem vs Rep matchup.
- * Designed to stay humble: capped edge, discriminative tags only, name memory.
+ * Confidence scales with signal: modest on weak reads, firmer when history aligns.
  */
 export function predictMatchupVote({
   matchup,
@@ -270,20 +286,23 @@ export function predictMatchupVote({
   const demTags = getCandidateTags(matchup.dem, 'dem', demCandidates)
   const repTags = getCandidateTags(matchup.rep, 'rep', repCandidates)
 
-  const sidePriorDem = (profile.demShare - 0.5) * 1.1
-  const sidePriorRep = (0.5 - profile.demShare) * 1.1
+  const partyLeanStrength = Math.min(1, Math.abs(profile.demShare - 0.5) / 0.3)
+  const traitScale = 1 - partyLeanStrength * 0.5
+
+  const sidePriorDem = (profile.demShare - 0.5) * 2.05
+  const sidePriorRep = (0.5 - profile.demShare) * 2.05
 
   const demNameBoost = nameAffinity.dem[matchup.dem.name]
-    ? Math.min(1.2, 0.35 + Math.log1p(nameAffinity.dem[matchup.dem.name]) * 0.45)
+    ? Math.min(1.85, 0.5 + Math.log1p(nameAffinity.dem[matchup.dem.name]) * 0.62)
     : 0
   const repNameBoost = nameAffinity.rep[matchup.rep.name]
-    ? Math.min(1.2, 0.35 + Math.log1p(nameAffinity.rep[matchup.rep.name]) * 0.45)
+    ? Math.min(1.85, 0.5 + Math.log1p(nameAffinity.rep[matchup.rep.name]) * 0.62)
     : 0
 
   const demScore = (
     sidePriorDem
     + (model?.sideBias?.dem || 0) * 0.45
-    + traitScoreForSide('dem', matchup, profile.preferredTrait)
+    + traitScoreForSide('dem', matchup, profile.preferredTrait) * traitScale
     + (model?.traitBias?.[profile.preferredTrait] || 0) * 0.35
     + tagScoreForSide(demTags, tagWeights, model)
     + demNameBoost
@@ -291,7 +310,7 @@ export function predictMatchupVote({
   const repScore = (
     sidePriorRep
     + (model?.sideBias?.rep || 0) * 0.45
-    + traitScoreForSide('rep', matchup, profile.preferredTrait)
+    + traitScoreForSide('rep', matchup, profile.preferredTrait) * traitScale
     + (model?.traitBias?.[profile.preferredTrait] || 0) * 0.35
     + tagScoreForSide(repTags, tagWeights, model)
     + repNameBoost
@@ -299,7 +318,19 @@ export function predictMatchupVote({
 
   const raw = softmaxPair(demScore, repScore)
   const calibrationStrength = calibrationFromHistory(votes, stats)
-  const { demChance, repChance } = calibrateProbabilities(raw.dem, raw.rep, calibrationStrength)
+  const signalStrength = signalStrengthFromContext({
+    scoreGap: Math.abs(demScore - repScore),
+    demNameBoost,
+    repNameBoost,
+    profile,
+    voteCount: votes.length,
+  })
+  const { demChance, repChance } = calibrateProbabilities(
+    raw.dem,
+    raw.rep,
+    calibrationStrength,
+    signalStrength,
+  )
 
   const preferredSide = demScore === repScore
     ? (profile.preferredSide === 'dem' ? 'dem' : 'rep')

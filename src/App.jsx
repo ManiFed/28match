@@ -1440,7 +1440,7 @@ export default function App() {
     })
     const pickName = result.side === 'dem' ? activeMatchup.dem.name : activeMatchup.rep.name
     setLiveMessage(
-      `Best guess: ${pickName} (~${(result.topProbability * 100).toFixed(0)}% — rough estimate).`
+      `Predicted pick: ${pickName} (${(result.topProbability * 100).toFixed(0)}%).`
     )
   }, [activeIdx, demCandidates, matchups, predictionModel, predictionStats, repCandidates, userPredictionVotes])
 
@@ -2565,7 +2565,7 @@ export default function App() {
 
           {showPredictionForCurrent && (
             <div className="prediction-prob-bar" role="status" aria-live="polite">
-              <div className="prediction-prob-title">Rough guess (not certain)</div>
+              <div className="prediction-prob-title">Predicted vote split</div>
               <div className="prediction-prob-track" aria-label={`Prediction: ${(predictionFx.demChance * 100).toFixed(1)} percent ${current.dem.name} and ${(predictionFx.repChance * 100).toFixed(1)} percent ${current.rep.name}`}>
                 <div className="prediction-prob-segment prediction-prob-dem" style={{ width: `${predictionFx.demChance * 100}%` }} />
                 <div className="prediction-prob-segment prediction-prob-rep" style={{ width: `${predictionFx.repChance * 100}%` }} />
