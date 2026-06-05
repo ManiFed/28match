@@ -23,8 +23,6 @@ const AUTH_TOKEN_STORAGE_KEY = 'authToken'
 const AUTH_USER_STORAGE_KEY = 'authUser'
 const ACCOUNT_DISMISSED_KEY = 'accountPromptDismissed'
 const ACCOUNT_PROMPT_VOTE_THRESHOLD = 5
-const VOTE_CONFIRMATION_MS = 500
-const STRONG_VOTE_CONFIRMATION_MS = 1000
 const PANEL_DOUBLE_CLICK_MS = 230
 const PANEL_LONG_PRESS_MS = 380
 const PANEL_TAP_MOVE_THRESHOLD_PX = 12
@@ -1110,7 +1108,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showProjectHelp, setShowProjectHelp] = useState(false)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
-  const [voteAdvancePending, setVoteAdvancePending] = useState(false)
+
   const [liveMessage, setLiveMessage] = useState('')
   const [streak, setStreak] = useState(0)
   const [streakFxTick, setStreakFxTick] = useState(0)
@@ -1139,7 +1137,7 @@ export default function App() {
   const [showAccountPrompt, setShowAccountPrompt] = useState(false)
   const [accountPromptDismissed, setAccountPromptDismissed] = useState(() => loadAccountDismissed())
   const requestedPhotosRef = useRef(new Set())
-  const voteAdvanceTimerRef = useRef(null)
+  const pendingVoteKeyRef = useRef(null)
   const lastVotedSideRef = useRef(null)
   const touchStartRef = useRef({ x: null, y: null })
 
@@ -1253,14 +1251,6 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    return () => {
-      if (voteAdvanceTimerRef.current) {
-        window.clearTimeout(voteAdvanceTimerRef.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
     if (!voteFx.side) return
     const timer = window.setTimeout(() => {
       setVoteFx(prev => ({ ...prev, side: null }))
@@ -1277,6 +1267,12 @@ export default function App() {
   }, [navHistory])
 
   const votedKeys = useMemo(() => new Set(sessionVotes.map(vote => vote.key)), [sessionVotes])
+
+  useEffect(() => {
+    if (pendingVoteKeyRef.current && votedKeys.has(pendingVoteKeyRef.current)) {
+      pendingVoteKeyRef.current = null
+    }
+  }, [votedKeys])
   const allMatchupsCompleted = matchups.length > 0 && votedKeys.size >= matchups.length
 
   const activeIdx = useMemo(() => {
@@ -1285,17 +1281,12 @@ export default function App() {
     const currentMatchup = matchups[normalizedIdx]
     const currentKey = currentMatchup ? `${currentMatchup.dem.id}-${currentMatchup.rep.id}` : null
 
-    // Keep showing the voted matchup during the post-vote confirmation delay.
-    if (voteAdvancePending) {
-      return normalizedIdx
-    }
-
     if (allMatchupsCompleted || (currentKey && !votedKeys.has(currentKey))) {
       return normalizedIdx
     }
 
     return findNextUnvotedIndex(matchups, votedKeys, normalizedIdx, 1)
-  }, [allMatchupsCompleted, idx, matchups, voteAdvancePending, votedKeys])
+  }, [allMatchupsCompleted, idx, matchups, votedKeys])
 
   const playSound = useCallback((type) => {
     try {
@@ -1326,10 +1317,10 @@ export default function App() {
   }, [])
 
   const vote = useCallback(async (side, strength = 'normal') => {
-    if (voteAdvancePending) return
     const currentMatchup = matchups[activeIdx]
     if (!currentMatchup) return
     const key = `${currentMatchup.dem.id}-${currentMatchup.rep.id}`
+    if (pendingVoteKeyRef.current === key) return
     if (votedKeys.has(key)) {
       const nextIdx = findNextUnvotedIndex(matchups, votedKeys, activeIdx + 1, 1)
       if (nextIdx !== -1) setIdx(nextIdx)
@@ -1497,28 +1488,16 @@ export default function App() {
           setShowAccountPrompt(true)
         }
       }
-      setVoteAdvancePending(true)
-      if (voteAdvanceTimerRef.current) {
-        window.clearTimeout(voteAdvanceTimerRef.current)
-      }
-      const votedActiveIdx = activeIdx
-      voteAdvanceTimerRef.current = window.setTimeout(() => {
-        setNavHistory(h => [...h, votedActiveIdx].slice(-100))
-        setIdx(i => {
-          const nextIdx = findNextUnvotedIndex(matchups, new Set([...votedKeys, key]), i + 1, 1)
-          return nextIdx === -1 ? i : nextIdx
-        })
-        setVoteAdvancePending(false)
-        voteAdvanceTimerRef.current = null
-      }, isStrongVote ? STRONG_VOTE_CONFIRMATION_MS : VOTE_CONFIRMATION_MS)
+      pendingVoteKeyRef.current = key
+      setNavHistory(h => [...h, activeIdx].slice(-100))
+      setIdx(() => {
+        const nextIdx = findNextUnvotedIndex(matchups, new Set([...votedKeys, key]), activeIdx + 1, 1)
+        return nextIdx === -1 ? activeIdx : nextIdx
+      })
     } catch {
-      setVoteAdvancePending(false)
-      if (voteAdvanceTimerRef.current) {
-        window.clearTimeout(voteAdvanceTimerRef.current)
-        voteAdvanceTimerRef.current = null
-      }
+      pendingVoteKeyRef.current = null
     }
-  }, [accountPromptDismissed, activeIdx, activeRecommendationType, demCandidates, matchups, predictionFx, repCandidates, voteAdvancePending, votedKeys])
+  }, [accountPromptDismissed, activeIdx, activeRecommendationType, demCandidates, matchups, predictionFx, repCandidates, votedKeys])
 
   const predictVote = useCallback(() => {
     if (!userPredictionVotes.length) {
@@ -1991,11 +1970,11 @@ export default function App() {
   }, [buildContrastingRecommendations, sessionVotes.length, showInsights])
 
   useEffect(() => {
-    if (!matchups.length || voteAdvancePending) return
+    if (!matchups.length) return
     if (activeIdx !== -1 && activeIdx !== idx) {
       setIdx(activeIdx)
     }
-  }, [activeIdx, idx, matchups.length, voteAdvancePending])
+  }, [activeIdx, idx, matchups.length])
 
   if (loading) return <LoadingScreen timedOut={bootTimedOut} />
   if (error) return <ErrorScreen message={error} />
@@ -2602,8 +2581,8 @@ export default function App() {
           party="dem"
           animKey={`dem-${activeIdx}`}
           onVote={(strength) => { vote('dem', strength) }}
-          canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
-          voteConfirming={voteAdvancePending}
+          canVote={!pollLoading && !alreadyVotedCurrent}
+          voteConfirming={false}
           flashTick={voteFx.side === 'dem' ? voteFx.tick : 0}
           predictionChance={showPredictionForCurrent ? predictionFx.demChance : 0}
           flashStrength={voteFx.side === 'dem' ? voteFx.strength : 'normal'}
@@ -2703,8 +2682,8 @@ export default function App() {
           party="rep"
           animKey={`rep-${activeIdx}`}
           onVote={(strength) => { vote('rep', strength) }}
-          canVote={!pollLoading && !voteAdvancePending && !alreadyVotedCurrent}
-          voteConfirming={voteAdvancePending}
+          canVote={!pollLoading && !alreadyVotedCurrent}
+          voteConfirming={false}
           flashTick={voteFx.side === 'rep' ? voteFx.tick : 0}
           predictionChance={showPredictionForCurrent ? predictionFx.repChance : 0}
           flashStrength={voteFx.side === 'rep' ? voteFx.strength : 'normal'}
